@@ -33,9 +33,10 @@ def setup_test_data(vs: VectorStore):
 def test_case_1_strict_isolation(vs: VectorStore):
     """Client A query should not return Client B data."""
     logger.info("[Test Case 1] Verifying strict isolation...")
-    results = vs.query_context("clients", "operating system", client_id="TechCo")
-    for doc in results:
-        assert "BankCo" not in doc, f"LEAKAGE detected in TechCo results: {doc}"
+    result = vs.query_context("clients", "operating system", client_id="TechCo")
+    
+    self_content = str(result.get("content", "")) + str(result.get("client_name", ""))
+    assert "BankCo" not in self_content, f"LEAKAGE detected in TechCo results: {result}"
     logger.info("✅ Case 1 Passed: No leakage detected.")
 
 def test_case_2_unknown_client_raises(vs: VectorStore):
@@ -48,14 +49,13 @@ def test_case_2_unknown_client_raises(vs: VectorStore):
         logger.info(f"✅ Case 2 Passed: Correctly raised error: {e}")
 
 def test_case_3_empty_query_warning(vs: VectorStore):
-    """Query that finds no results for a valid client returns empty list."""
-    logger.info("[Test Case 3] Verifying empty result behavior...")
-    # Using a niche topic that won't match semantic search for TechCo
-    results = vs.query_context("clients", "Quantum Physics and Astrophysics", client_id="TechCo", n_results=1)
-    # Note: In our current implementation, semantic search always returns the closest doc 
-    # unless we use a distance threshold. For Phase 9, we check if it returns empty properly 
-    # if it doesn't match the metadata filter.
-    logger.info(f"✅ Case 3 Passed: Results for niche query: {len(results)} docs (Filtered by TechCo)")
+    """Query that finds no results for a valid client returns status 'not_found' or similar."""
+    logger.info("[Test Case 3] Verifying lookup behavior...")
+    result = vs.query_context("clients", "Quantum Physics", client_id="TechCo")
+    # Even if niche, semantic search might return the closest doc. We check if the filter worked.
+    assert result.get("status") == "success"
+    assert "TechCo" in str(result)
+    logger.info("✅ Case 3 Passed: Results verified with metadata filter.")
 
 def test_case_4_parallel_isolation(vs: VectorStore):
     """Parallel queries for different clients should not mix results."""
@@ -70,9 +70,9 @@ def test_case_4_parallel_isolation(vs: VectorStore):
         
         r1, r2 = f1.result(), f2.result()
         
-        # Cross-reference check
-        assert any("TechCo" in d for d in r1) and not any("BankCo" in d for d in r1), "TechCo data mixed"
-        assert any("BankCo" in d for d in r2) and not any("TechCo" in d for d in r2), "BankCo data mixed"
+        # Cross-reference check in the new dictionary format
+        assert "TechCo" in str(r1) and "BankCo" not in str(r1), "TechCo result mixed or incorrect"
+        assert "BankCo" in str(r2) and "TechCo" not in str(r2), "BankCo result mixed or incorrect"
         
     logger.info("✅ Case 4 Passed: Parallel threads maintained isolation.")
 

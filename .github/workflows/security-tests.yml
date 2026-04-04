@@ -1,0 +1,65 @@
+name: Security & Multi-Tenant Isolation Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # Job 1: Runs on every PR/Push - Mock-only isolation and safety tests
+  isolation-and-safety-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Multi-Tenant Isolation Tests
+        run: python3 tests/test_isolation.py
+        env:
+          SOAR_DRY_RUN: "true"
+
+      - name: Run SafetyGuard & Triage Logic Tests
+        run: python3 tests/test_phase7.py
+        env:
+          SOAR_DRY_RUN: "true"
+          GEMINI_RPM_LIMIT: "15"
+          # No GEMINI_API_KEY provided; logic should fall back to mock or skip live calls
+
+      - name: Run DNS Security Tests
+        run: python3 tests/test_dns.py
+
+  # Job 2: Runs only on main branch push - Live Triage with Gemini API
+  live-triage-test:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Live E2E Triage Test
+        run: python3 tests/test_phase5.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SOAR_DRY_RUN: "true"
+          GEMINI_RPM_LIMIT: "15"

@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import logging
+from soc.playbooks.web_attack_playbook import WebAttackPlaybook
+from soc.playbooks.hardening_playbook import HardeningPlaybook
+from soc.playbooks.phishing_playbook import PhishingPlaybook
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +43,24 @@ class AlertRouter:
         ("high",     "cve")            : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
         ("high",     "default_ssh")    : [ActionType.NOTIFY_ONLY],
         ("medium",   "default_ssh")    : [ActionType.NOTIFY_ONLY],
+        ("high",     "dns_spf_missing"): [ActionType.NOTIFY_ONLY],
+        ("high",     "dns_dmarc_missing"): [ActionType.NOTIFY_ONLY],
+        ("high",     "reputation_vt"): [ActionType.BLOCK_IP, ActionType.ESCALATE_HUMAN, ActionType.NOTIFY_ONLY],
     }
+
+    def get_playbooks(self, client_name: str, config: Dict[str, Any], finding_type: str) -> List:
+        """
+        Returns instances of playbooks relevant to the finding_type.
+        """
+        playbooks = []
+        if "web" in finding_type or "http" in finding_type:
+            playbooks.append(WebAttackPlaybook(client_name, config))
+        if "ssh" in finding_type or "service" in finding_type:
+            playbooks.append(HardeningPlaybook(client_name, config))
+        if "dns" in finding_type or "reputation" in finding_type:
+            playbooks.append(PhishingPlaybook(client_name, config))
+            
+        return playbooks
 
     def route(self, alert: AlertContext) -> List[ActionType]:
         key = (alert.severity.lower(), alert.finding_type.lower())

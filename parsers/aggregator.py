@@ -40,7 +40,9 @@ class Aggregator:
                         "ip": ip,
                         "status": host.get("status", "Unknown"),
                         "open_ports": [],
-                        "vulnerabilities": []  # Placeholder for Nuclei integration
+                        "vulnerabilities": [],
+                        "dns_records": [],
+                        "reputation_stats": {}
                     }
                 
                 # Merge port data
@@ -59,7 +61,9 @@ class Aggregator:
                         "ip": ip,
                         "status": "Unknown",
                         "open_ports": [],
-                        "vulnerabilities": []
+                        "vulnerabilities": [],
+                        "dns_records": [],
+                        "reputation_stats": {}
                     }
                 if "vulnerabilities" not in self.targets_db[ip]:
                     self.targets_db[ip]["vulnerabilities"] = []
@@ -69,6 +73,21 @@ class Aggregator:
                     "severity": finding.get("severity"),
                     "description": finding.get("description")
                 })
+                
+        elif "dns_findings" in parsed_data or "findings" in parsed_data and any(f.get("type", "").startswith("dns") for f in parsed_data.get("findings", [])):
+            # Support both direct key and flattened findings from DNSTool/VTTool
+            findings_list = parsed_data.get("findings", [])
+            target = parsed_data.get("target", "Unknown")
+            ip = resolve_to_ip(target)
+            
+            if ip not in self.targets_db:
+                self.targets_db[ip] = {"ip": ip, "status": "Unknown", "open_ports": [], "vulnerabilities": [], "dns_records": [], "reputation_stats": {}}
+            
+            for f in findings_list:
+                if f.get("type", "").startswith("dns"):
+                    self.targets_db[ip]["dns_records"].append(f)
+                elif f.get("type", "").startswith("reputation"):
+                    self.targets_db[ip]["reputation_stats"] = f
                         
     def filter_false_positives(self):
         """
@@ -114,6 +133,26 @@ class Aggregator:
                     "source": "nuclei",
                     "vuln_id": vuln.get("vuln_id"),
                     "name": vuln.get("name")
+                })
+
+            for dns in host.get("dns_records", []):
+                findings.append({
+                    "target_ip": ip,
+                    "finding_type": dns.get("type"),
+                    "severity": dns.get("severity", "low").lower(),
+                    "source": "dns_tool",
+                    "description": dns.get("description")
+                })
+
+            rep = host.get("reputation_stats", {})
+            if rep:
+                findings.append({
+                    "target_ip": ip,
+                    "finding_type": rep.get("type"),
+                    "severity": rep.get("severity", "low").lower(),
+                    "source": "vt_tool",
+                    "description": rep.get("description"),
+                    "malicious_count": rep.get("malicious_count", 0)
                 })
 
         return {

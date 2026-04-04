@@ -88,10 +88,11 @@ class VectorStore:
             )
             logger.info(f"Ingested {len(documents)} controls for {framework_name}")
 
-    def query_context(self, collection_name: str, query_text: str, n_results: int = 1, client_id: str = None) -> List[str]:
+    def query_context(self, collection_name: str, query_text: str, n_results: int = 1, client_id: str = None) -> Dict[str, Any]:
         """
         Queries ChromaDB for semantic context matching the query_text.
         If client_id is provided, applies a strict metadata filter.
+        Always returns a dictionary (parsed YAML or wrapped text).
         """
         collection = None
         if collection_name == "clients":
@@ -100,23 +101,20 @@ class VectorStore:
             collection = self.compliance_collection
         else:
             logger.error(f"Unknown collection: {collection_name}")
-            return []
+            return {"status": "error", "message": f"Unknown collection: {collection_name}"}
 
         # Case 1: Client profile search must verify it's onboarded
         if client_id and collection_name == "clients":
-            # ChromaDB check if client exists in metadata keys
             count = collection.count()
             if count == 0:
                 raise ClientProfileNotFoundError(f"No clients onboarded in '{collection_name}' collection.")
             
-            # Simple check for existence of the ID
             check = collection.get(where={"client_name": {"$eq": client_id}})
             if not check or not check["ids"]:
                 raise ClientProfileNotFoundError(f"Client '{client_id}' not found in '{collection_name}' collection.")
 
         if collection.count() == 0:
-            logger.warning(f"Collection '{collection_name}' is empty. Returning no context.")
-            return []
+            return {"status": "empty", "message": f"Collection '{collection_name}' is empty."}
 
         # Prepare filter
         where_filter = None
@@ -130,8 +128,19 @@ class VectorStore:
         )
         
         # Results structure: {'documents': [['doc1', 'doc2']]}
-        if results and "documents" in results and results["documents"]:
-            if results["documents"][0]:
-                return results["documents"][0]
+        if results and "documents" in results and results["documents"] and results["documents"][0]:
+            raw_doc = results["documents"][0][0]
+            try:
+                # Attempt to parse as YAML
+                parsed = yaml.safe_load(raw_doc)
+                if isinstance(parsed, dict):
+                    parsed["status"] = "success"
+                    return parsed
+                else:
+                    # Not a dict after parsing, wrap it
+                    return {"status": "success", "client_name": client_id, "content": raw_doc}
+            except Exception:
+                # Parsing failed, return as raw context
+                return {"status": "success", "client_name": client_id, "content": raw_doc}
                 
-        return []
+        return {"status": "not_found", "message": "No matching context found."}
