@@ -1,6 +1,41 @@
-venv/
-__pycache__/
-logs/
+# Environment and Secrets
 .env
+.env.template
+*.pem
+*.key
+
+# Virtual Environment
+venv/
+ENV/
+bin/
+lib/
+share/
+include/
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Project Synapse Data & DBs
 .chroma_db*/
+knowledge/vector_store/
+
+# SOC Operational Data (Audit & Tickets)
+soc/audit/
+soc/tickets/
+logs/
+
+# Reports and Output
 reports/output/
+*.md_report.md
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
