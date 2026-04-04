@@ -1,18 +1,9 @@
 from dataclasses import dataclass
-from enum import Enum
 from typing import List, Optional, Dict, Any
 import logging
-from soc.playbooks.web_attack_playbook import WebAttackPlaybook
-from soc.playbooks.hardening_playbook import HardeningPlaybook
-from soc.playbooks.phishing_playbook import PhishingPlaybook
+from soc.playbooks.base_playbook import ActionType
 
 logger = logging.getLogger(__name__)
-
-class ActionType(Enum):
-    BLOCK_IP        = "block_ip"
-    NOTIFY_ONLY     = "notify_only"
-    PATCH_ADVISORY  = "patch_advisory"
-    ESCALATE_HUMAN  = "escalate_human"
 
 @dataclass
 class AlertContext:
@@ -51,7 +42,13 @@ class AlertRouter:
     def get_playbooks(self, client_name: str, config: Dict[str, Any], finding_type: str) -> List:
         """
         Returns instances of playbooks relevant to the finding_type.
+        Late imports used to break circular dependencies.
         """
+        # Late imports to ensure no cycle with AlertRouter
+        from soc.playbooks.web_attack_playbook import WebAttackPlaybook
+        from soc.playbooks.hardening_playbook import HardeningPlaybook
+        from soc.playbooks.phishing_playbook import PhishingPlaybook
+
         playbooks = []
         if "web" in finding_type or "http" in finding_type:
             playbooks.append(WebAttackPlaybook(client_name, config))

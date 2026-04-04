@@ -42,7 +42,9 @@ class Aggregator:
                         "open_ports": [],
                         "vulnerabilities": [],
                         "dns_records": [],
-                        "reputation_stats": {}
+                        "reputation_stats": {},
+                        "subdomains": [],
+                        "subdomain_count": 0
                     }
                 
                 # Merge port data
@@ -63,7 +65,9 @@ class Aggregator:
                         "open_ports": [],
                         "vulnerabilities": [],
                         "dns_records": [],
-                        "reputation_stats": {}
+                        "reputation_stats": {},
+                        "subdomains": [],
+                        "subdomain_count": 0
                     }
                 if "vulnerabilities" not in self.targets_db[ip]:
                     self.targets_db[ip]["vulnerabilities"] = []
@@ -88,6 +92,15 @@ class Aggregator:
                     self.targets_db[ip]["dns_records"].append(f)
                 elif f.get("type", "").startswith("reputation"):
                     self.targets_db[ip]["reputation_stats"] = f
+
+        elif parsed_data.get("source") == "subfinder":
+            target = parsed_data.get("target", "Unknown")
+            ip = resolve_to_ip(target)
+            if ip not in self.targets_db:
+                self.targets_db[ip] = {"ip": ip, "status": "Unknown", "open_ports": [], "vulnerabilities": [], "dns_records": [], "reputation_stats": {}, "subdomains": [], "subdomain_count": 0}
+            
+            self.targets_db[ip]["subdomains"] = parsed_data.get("subdomains", [])
+            self.targets_db[ip]["subdomain_count"] = parsed_data.get("count", 0)
                         
     def filter_false_positives(self):
         """
@@ -158,5 +171,7 @@ class Aggregator:
         return {
             "summary_type": "DataStandardization",
             "targets": list(self.targets_db.values()),
-            "findings": findings
+            "findings": findings,
+            "subdomains": [s for h in self.targets_db.values() for s in h.get("subdomains", [])],
+            "subdomain_count": sum(h.get("subdomain_count", 0) for h in self.targets_db.values())
         }

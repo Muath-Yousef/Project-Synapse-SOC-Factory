@@ -14,6 +14,7 @@ from tools.nuclei_tool import NucleiTool
 from parsers.nuclei_parser import NucleiParser
 from tools.dns_tool import DNSTool
 from tools.virustotal_tool import VirusTotalTool
+from tools.subfinder_tool import SubfinderTool
 from parsers.aggregator import Aggregator
 from knowledge.vector_store import VectorStore, ClientProfileNotFoundError
 from core.llm_manager import LLMManager
@@ -41,9 +42,22 @@ class Orchestrator:
         self.nuclei_parser = NucleiParser()
         self.dns_tool = DNSTool()
         self.vt_tool = VirusTotalTool()
+        self.subfinder_tool = SubfinderTool()
         self.aggregator = Aggregator()
         self.llm = LLMManager()
         self.report_gen = ReportGenerator()
+
+    def _is_domain(self, target: str) -> bool:
+        """
+        Helper to check if target is a domain name.
+        """
+        host = target.split(":")[0]
+        try:
+            import ipaddress
+            ipaddress.ip_address(host)
+            return False
+        except ValueError:
+            return True
 
     def run_triage(self, target_ip: str, client_id: str, **kwargs):
         logger.info(f"--- [PHASE 5 ORCHESTRATION STARTED] ---")
@@ -102,6 +116,16 @@ class Orchestrator:
             self.aggregator.ingest(vt_results)
         except Exception as e:
             logger.error(f"VT Reputation Enrichment failed: {e}")
+            
+        # Subdomain Reconnaissance (Domain targets only)
+        if self._is_domain(target_ip):
+            try:
+                subfinder_results = self.subfinder_tool.run(target_ip)
+                if subfinder_results.get("status") == "success":
+                    self.aggregator.ingest(subfinder_results)
+                    logger.info(f"[Orchestrator] Subfinder found {subfinder_results['count']} subdomains")
+            except Exception as e:
+                logger.error(f"Subfinder Reconnaissance failed: {e}")
             
         final_json = self.aggregator.get_final_payload()
         logger.info(f"Standardized Payload Generated (Targets: {len(final_json.get('targets', []))})")
