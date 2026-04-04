@@ -45,6 +45,12 @@ class AlertRouter:
         ("low",      "dns_missing_dkim") : [ActionType.NOTIFY_ONLY],
         ("high",     "ip_reputation")    : [ActionType.NOTIFY_ONLY],
         ("medium",   "ip_reputation")    : [ActionType.NOTIFY_ONLY],
+        ("critical", "malware")              : [ActionType.ESCALATE_HUMAN],
+        ("high",     "malware")              : [ActionType.ESCALATE_HUMAN],
+        ("critical", "data_exfiltration")    : [ActionType.BLOCK_IP, ActionType.ESCALATE_HUMAN],
+        ("high",     "data_exfiltration")    : [ActionType.BLOCK_IP, ActionType.ESCALATE_HUMAN],
+        ("critical", "ransomware_precursor") : [ActionType.ESCALATE_HUMAN],
+        ("high",     "ransomware_precursor") : [ActionType.ESCALATE_HUMAN],
     }
 
     def get_playbooks(self, client_name: str, config: Dict[str, Any], finding_type: str) -> List:

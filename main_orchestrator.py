@@ -26,6 +26,9 @@ from soc.safety_guard import SafetyGuard
 from soc.alert_router import AlertRouter, AlertContext, ActionType
 from soc.playbooks.web_attack_playbook import WebAttackPlaybook
 from soc.playbooks.hardening_playbook import HardeningPlaybook
+from soc.playbooks.malware_playbook import MalwarePlaybook
+from soc.playbooks.data_exfil_playbook import DataExfilPlaybook
+from soc.playbooks.ransomware_playbook import RansomwarePlaybook
 from soc.audit_log import log_action
 
 DRY_RUN = os.getenv("SOAR_DRY_RUN", "true").lower() == "true"
@@ -213,6 +216,18 @@ class Orchestrator:
                 elif action == ActionType.PATCH_ADVISORY or ftype == "default_ssh":
                     result = hard_playbook.execute(alert, dry_run=DRY_RUN)
                     log_action(client_name, "HARDENING_ADVISORY", target_ip, ftype, severity, DRY_RUN, result)
+
+                elif ftype in ["malware"]:
+                    result = MalwarePlaybook().execute(alert, dry_run=DRY_RUN)
+                    log_action(client_name, "MALWARE_ESCALATION", target_ip, ftype, severity, DRY_RUN, result)
+                
+                elif ftype in ["data_exfiltration"]:
+                    result = DataExfilPlaybook().execute(alert, dry_run=DRY_RUN)
+                    log_action(client_name, "DATA_EXFIL_RESPONSE", target_ip, ftype, severity, DRY_RUN, result)
+                
+                elif ftype in ["ransomware_precursor"]:
+                    result = RansomwarePlaybook().execute(alert, dry_run=DRY_RUN)
+                    log_action(client_name, "P0_RANSOMWARE", target_ip, ftype, severity, DRY_RUN, result)
 
 if __name__ == "__main__":
     import argparse
