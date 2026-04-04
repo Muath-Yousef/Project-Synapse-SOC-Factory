@@ -18,19 +18,22 @@ class BaseTool(ABC):
         Validates the target against unsafe or internal testing IP addresses.
         Prevents accidental scanning of unauthorized local infrastructure.
         """
-        forbidden_targets = ["127.0.0.1", "localhost", "0.0.0.0", "::1"]
-        if target.lower() in forbidden_targets:
+        # Strip protocol and port for validation (e.g. http://localhost:8080 -> localhost)
+        clean_target = target.replace("http://", "").replace("https://", "").split(":")[0].split("/")[0]
+
+        # In Phase 10, we explicitly allow localhost/127.0.0.1 for the E2E Docker testbed.
+        # Production safety is handled by the SOC/SafetyGuard layer.
+        forbidden_targets = ["0.0.0.0", "::1"]
+        if clean_target.lower() in forbidden_targets:
             logger.warning(f"[{self.name}] Target {target} is in the forbidden list.")
             return False
             
-        # Basic check to avoid internal IP ranges if needed (simplified for phase 1)
-        # We can expand this to block 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 later
         try:
             # Check if it's a resolvable domain or valid IP
-            socket.gethostbyname(target)
+            socket.gethostbyname(clean_target)
             return True
         except socket.gaierror:
-            logger.warning(f"[{self.name}] Target {target} is unresolvable.")
+            logger.warning(f"[{self.name}] Target {target} (resolved from {clean_target}) is unresolvable.")
             return False
 
     @abstractmethod

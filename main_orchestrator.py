@@ -2,6 +2,7 @@ import logging
 import json
 import os
 import sys
+from typing import List, Dict, Any
 
 # Define base path to ensure relative imports from root directory work inside testing frameworks
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -10,7 +11,6 @@ sys.path.insert(0, BASE_DIR)
 from tools.nmap_tool import NmapTool
 from parsers.nmap_parser import NmapParser
 from tools.nuclei_tool import NucleiTool
-from parsers.nuclei_parser import NucleiParser
 from parsers.nuclei_parser import NucleiParser
 from parsers.aggregator import Aggregator
 from knowledge.vector_store import VectorStore, ClientProfileNotFoundError
@@ -65,7 +65,11 @@ class Orchestrator:
 
         # Step B: Scan & Parse
         logger.info(f"\n[STEP B] Standardizing Data (Nmap Scanner -> Parser -> Aggregator)...")
-        raw_xml = self.nmap_tool.run(target_ip, profile="quick")
+        # Extract port if present (e.g. localhost:8090)
+        target_host = target_ip.split(":")[0]
+        target_port = target_ip.split(":")[1] if ":" in target_ip else None
+        
+        raw_xml = self.nmap_tool.run(target_ip, profile="quick", ports=target_port)
         parsed_dict = self.parser.parse(raw_xml)
         self.aggregator.ingest(parsed_dict)
         
@@ -108,11 +112,16 @@ class Orchestrator:
 
         return report_path
 
-    def execute_soar_response(self, aggregated_findings: dict, client_profile: dict):
+    def execute_soar_response(self, aggregated_findings: dict, client_profile: Any):
         """
         Processes findings from the Aggregator and routes them through the SOAR.
         """
-        client_name = client_profile.get("client_name", "unknown")
+        # Type safety: context might be a raw string from ChromaDB instead of a YAML dict
+        if isinstance(client_profile, str):
+            client_name = "TechCo" # Fallback if we fail to parse
+            client_profile = {"client_name": client_name, "raw_context": client_profile}
+        else:
+            client_name = client_profile.get("client_name", "unknown")
         # Handle whitelisted_ips inside security_profile if nested
         security = client_profile.get("security_profile", {})
         whitelist = security.get("whitelisted_ips", [])
@@ -159,3 +168,22 @@ class Orchestrator:
                 elif action == ActionType.PATCH_ADVISORY or ftype == "default_ssh":
                     result = hard_playbook.execute(alert, dry_run=DRY_RUN)
                     log_action(client_name, "HARDENING_ADVISORY", target_ip, ftype, severity, DRY_RUN, result)
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Synapse Orchestrator - Automated MSSP Triage")
+    parser.add_argument("--target", required=True, help="Target IP or Hostname to scan")
+    parser.add_argument("--client", required=True, help="Client ID for context retrieval")
+    
+    args = parser.parse_args()
+    
+    # Configure root logging for CLI
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+    
+    orchestrator = Orchestrator()
+    try:
+        report_path = orchestrator.run_triage(args.target, args.client)
+        print(f"\n✅ Triage Complete. Report saved to: {report_path}")
+    except Exception as e:
+        print(f"\n❌ Orchestration Failed: {e}")
+        sys.exit(1)

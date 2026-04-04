@@ -16,23 +16,30 @@ class NmapTool(BaseTool):
     def get_description(self) -> str:
         return "Network exploration tool and security / port scanner. Returns standard XML (-oX)."
 
-    def run(self, target: str, profile: str = "quick") -> str:
+    def run(self, target: str, profile: str = "quick", ports: str = None) -> str:
         """
         Runs an Nmap scan against the target.
         Profiles:
         - quick: Fast scan of top ports (-F)
         - full: Service version detection (-sV -sC)
+        - ports: Scan specific port range (if 'ports' argument provided)
         """
         
         if not self.validate_target(target):
             raise ValueError(f"[{self.name}] Target {target} failed safety validation.")
             
-        logger.info(f"[{self.name}] Initiating '{profile}' scan against {target}...")
+        # Sanitize target for Nmap (remove port suffix like :8080)
+        clean_target = target.replace("http://", "").replace("https://", "").split(":")[0].split("/")[0]
+        
+        logger.info(f"[{self.name}] Initiating '{profile}' scan against {clean_target}...")
         
         # Base command forcing XML output to stdout
         command = ["nmap", "-oX", "-"]
         
-        if profile == "quick":
+        if ports:
+            # If specific ports are provided, we prioritize -p over profiles
+            command.extend(["-p", ports, "-T4"])
+        elif profile == "quick":
             command.extend(["-F", "-T4"])
         elif profile == "full":
             command.extend(["-sV", "-sC", "-T4"])
@@ -40,7 +47,7 @@ class NmapTool(BaseTool):
             logger.warning(f"[{self.name}] Unknown profile '{profile}', falling back to 'quick'.")
             command.extend(["-F", "-T4"])
             
-        command.append(target)
+        command.append(clean_target)
         
         try:
             # Execute Nmap
