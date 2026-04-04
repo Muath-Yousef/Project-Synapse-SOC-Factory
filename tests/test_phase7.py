@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from main_orchestrator import Orchestrator
-from soc.alert_router import ActionType
+from soc.alert_router import ActionType, AlertRouter, AlertContext
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 
@@ -78,6 +78,25 @@ def test_cloudflare_ip_blocked_by_guard():
         assert safe == False, f"Cloudflare IP {ip} should be protected"
         print(f"✅ CDN IP {ip} correctly protected: {reason}")
 
+def test_dns_findings_never_trigger_block():
+    """DNS configuration weaknesses must NEVER result in BLOCK_IP"""
+    router = AlertRouter()
+    dns_types = ["dns_dmarc", "dns_spf", "dns_missing_dkim"]
+    severities = ["low", "medium", "high"]
+    for ftype in dns_types:
+        for severity in severities:
+            alert = AlertContext(
+                client_id="test", target_ip="1.2.3.4",
+                finding_type=ftype, severity=severity,
+                cve_id=None, source_tool="dns_tool", raw_finding={}
+            )
+            actions = router.route(alert)
+            action_values = [a.value for a in actions]
+            assert "block_ip" not in action_values, \
+                f"FAIL: BLOCK_IP triggered for {ftype}/{severity}"
+    print("✅ DNS findings correctly routed to advisory-only")
+
 if __name__ == "__main__":
     test_soar_safety_cases()
     test_cloudflare_ip_blocked_by_guard()
+    test_dns_findings_never_trigger_block()

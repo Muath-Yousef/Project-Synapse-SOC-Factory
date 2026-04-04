@@ -29,14 +29,22 @@ class AlertRouter:
     """
 
     ROUTING_TABLE = {
-        ("critical", "cleartext_http") : [ActionType.BLOCK_IP, ActionType.ESCALATE_HUMAN],
-        ("critical", "cve")            : [ActionType.BLOCK_IP, ActionType.NOTIFY_ONLY],
-        ("high",     "cve")            : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
-        ("high",     "default_ssh")    : [ActionType.NOTIFY_ONLY],
-        ("medium",   "default_ssh")    : [ActionType.NOTIFY_ONLY],
-        ("high",     "dns_spf_missing"): [ActionType.NOTIFY_ONLY],
-        ("high",     "dns_dmarc_missing"): [ActionType.NOTIFY_ONLY],
-        ("high",     "reputation_vt"): [ActionType.BLOCK_IP, ActionType.ESCALATE_HUMAN, ActionType.NOTIFY_ONLY],
+        ("critical", "cleartext_http")   : [ActionType.BLOCK_IP, ActionType.ESCALATE_HUMAN],
+        ("critical", "cve")              : [ActionType.BLOCK_IP, ActionType.NOTIFY_ONLY],
+        ("high",     "cve")              : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
+        ("high",     "default_ssh")      : [ActionType.NOTIFY_ONLY],
+        ("medium",   "default_ssh")      : [ActionType.NOTIFY_ONLY],
+        ("high",     "dns_dmarc")        : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
+        ("medium",   "dns_dmarc")        : [ActionType.NOTIFY_ONLY],
+        ("low",      "dns_dmarc")        : [ActionType.NOTIFY_ONLY],
+        ("high",     "dns_spf")          : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
+        ("medium",   "dns_spf")          : [ActionType.NOTIFY_ONLY],
+        ("low",      "dns_spf")          : [ActionType.NOTIFY_ONLY],
+        ("high",     "dns_missing_dkim") : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
+        ("medium",   "dns_missing_dkim") : [ActionType.NOTIFY_ONLY],
+        ("low",      "dns_missing_dkim") : [ActionType.NOTIFY_ONLY],
+        ("high",     "ip_reputation")    : [ActionType.NOTIFY_ONLY],
+        ("medium",   "ip_reputation")    : [ActionType.NOTIFY_ONLY],
     }
 
     def get_playbooks(self, client_name: str, config: Dict[str, Any], finding_type: str) -> List:
@@ -61,6 +69,9 @@ class AlertRouter:
 
     def route(self, alert: AlertContext) -> List[ActionType]:
         key = (alert.severity.lower(), alert.finding_type.lower())
-        actions = self.ROUTING_TABLE.get(key, [ActionType.NOTIFY_ONLY])
+        actions = self.ROUTING_TABLE.get(key)
+        if not actions:
+            logger.warning(f"[Router] No rule for {key} — defaulting to NOTIFY_ONLY")
+            actions = [ActionType.NOTIFY_ONLY]
         logger.info(f"[Router] {alert.client_id} | {key} → {actions}")
         return actions
