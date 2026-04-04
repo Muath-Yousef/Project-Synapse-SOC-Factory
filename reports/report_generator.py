@@ -37,6 +37,16 @@ class ReportGenerator:
             port_lines.append(line)
             
         ports_md = "\n".join(port_lines) if port_lines else "- No open ports discovered on target."
+        
+        # Format vulnerabilities
+        vulns = host_info.get("vulnerabilities", [])
+        vuln_lines = []
+        for v in vulns:
+            sev = v.get("severity", "INFO")
+            name = v.get("name", "Unknown")
+            desc = v.get("description", "")
+            vuln_lines.append(f"- **[{sev}]** {name} : {desc}")
+        vulns_md = "\n".join(vuln_lines) if vuln_lines else "- No explicit remote vulnerabilities identified by template scanner."
 
         if not client_context or client_context == "No Context Found":
             context_formatted = "_No client infrastructure context located._"
@@ -58,6 +68,10 @@ class ReportGenerator:
 ### Discovery & Mapping
 The following services were identified on the target infrastructure during the automated scan phase:
 {ports_md}
+
+### Vulnerabilities
+The following template-based findings were detected:
+{vulns_md}
 
 ---
 

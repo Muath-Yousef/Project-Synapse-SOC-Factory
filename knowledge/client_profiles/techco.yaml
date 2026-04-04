@@ -19,3 +19,5 @@ security_profile:
   critical_assets:
     - "Customer Database"
     - "Payment Gateway API"
+  whitelisted_ips:
+    - "8.8.8.8"

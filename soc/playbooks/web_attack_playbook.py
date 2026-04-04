@@ -1,44 +1,62 @@
+from soc.connectors.cloudflare_connector import CloudflareConnector
+from soc.connectors.telegram_connector import TelegramConnector
 import logging
-from .base_playbook import BasePlaybook
-from connectors.cloudflare_connector import CloudflareConnector
-from connectors.telegram_connector import TelegramConnector
 
-logger = logging.getLogger('web_attack_playbook')
+logger = logging.getLogger(__name__)
 
-class WebAttackPlaybook(BasePlaybook):
+class WebAttackPlaybook:
+    """
+    Triggered by: critical/high web-facing findings
+    
+    Execution order:
+    1. Block IP at Cloudflare WAF (Firewall Rule)
+    2. Notify analyst via Telegram
+    3. Log action to audit trail
+    
+    Failure handling:
+    - Cloudflare failure → escalate to human immediately
+    - Telegram failure   → log locally, do NOT abort block
+    """
+
     def __init__(self):
-        super().__init__("web_attack_playbook", trigger_rules=["sql", "sqli", "injection", "xss", "web"])
-        self.cloudflare = CloudflareConnector()
-        self.telegram = TelegramConnector()
+        self.cf = CloudflareConnector()
+        self.tg = TelegramConnector()
 
-    def execute(self, alert: dict):
+    def execute(self, alert_context, dry_run: bool = True) -> dict:
+        result = {"status": "pending", "actions_taken": []}
+
+        if dry_run:
+            logger.warning(f"[DRY-RUN] Would block {alert_context.target_ip} - no action taken")
+            self.tg.send(f"🔵 DRY-RUN | Would block: {alert_context.target_ip}", channel="actions")
+            return {"status": "dry_run", "would_block": alert_context.target_ip}
+
+        # Step 1: Cloudflare Block
         try:
-            logger.info(f"[{self.name}] بدء التعامل مع هجوم ويب (Web Attack)")
-            
-            src_ip = alert.get("data", {}).get("srcip")
-            if not src_ip:
-                logger.warning(f"[{self.name}] لم يتم العثور على عنوان IP المهاجم في التنبيه.")
-                return
-            
-            # Confidence for deterministic web attacks like SQLi/XSS is high
-            confidence = 95
-            
-            # 1. Block at WAF Level via Cloudflare
-            block_success = self.cloudflare.block_ip(src_ip)
-            
-            action_desc = f"🔴 تم حظر IP المهاجم ({src_ip}) عبر Cloudflare WAF" if block_success else f"⚠️ فشل حظر IP المهاجم ({src_ip}) عبر Cloudflare WAF"
-            
-            logger.info(f"[{self.name}] الحكم النهائي: malicious (ثقة: {confidence}%) → {action_desc}")
-            
-            # 2. Push Alert to Telegram
-            msg = f"🔴 *تنبيه أمني — هجوم ويب حرج*\n" \
-                  f"العميل: `{alert.get('agent', {}).get('name', 'N/A')}`\n" \
-                  f"الجهاز: `{alert.get('agent', {}).get('ip', 'N/A')}`\n" \
-                  f"التهديد: {alert.get('rule', {}).get('description', 'N/A')}\n" \
-                  f"الإجراء: {action_desc}\n" \
-                  f"الثقة: {confidence}%"
-            
-            self.telegram.send_message(msg)
-            
+            cf_response = self.cf.block_ip(
+                ip=alert_context.target_ip,
+                reason=f"Synapse SOAR: {alert_context.finding_type} | {alert_context.client_id}"
+            )
+            result["actions_taken"].append(f"CF_BLOCK: {cf_response}")
+            logger.info(f"[Playbook] Cloudflare block issued for {alert_context.target_ip}")
         except Exception as e:
-            logger.error(f"[{self.name}] حدث خطأ أثناء تنفيذ Playbook: {e}")
+            # CRITICAL: لا تصمت عند فشل الـ Block
+            logger.critical(f"[Playbook] Cloudflare FAILED: {e}")
+            self.tg.send(f"🚨 SOAR FAILURE: Cloudflare block failed for {alert_context.target_ip}. Manual intervention required.")
+            result["status"] = "partial_failure"
+            return result
+
+        # Step 2: Telegram Notify
+        try:
+            self.tg.send(
+                f"✅ SOAR Action | Client: {alert_context.client_id}\n"
+                f"Finding: {alert_context.finding_type} ({alert_context.severity})\n"
+                f"IP Blocked: {alert_context.target_ip}\n"
+                f"Tool: {alert_context.source_tool}",
+                channel="actions"
+            )
+            result["actions_taken"].append("TELEGRAM_NOTIFY: sent")
+        except Exception as e:
+            logger.warning(f"[Playbook] Telegram notify failed (non-critical): {e}")
+
+        result["status"] = "success"
+        return result
