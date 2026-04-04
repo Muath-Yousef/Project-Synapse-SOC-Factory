@@ -59,6 +59,14 @@ Rules:
    not to DISMISS them.
 4. Output format: findings ONLY. No "everything is fine" verdicts.
    If there are no critical findings, explicitly state LOW risk with justification.
+5. HTTP Redirect Context: Port 80 open does NOT automatically mean cleartext_http risk
+   if the target is behind a CDN (Cloudflare, Akamai, Fastly, CloudFront).
+   CDN providers use port 80 exclusively for HTTP→HTTPS redirect (301/302).
+   Check: if target resolves to a known CDN IP range, downgrade port 80 from
+   Critical to Low with note: 'CDN redirect pattern - verify HTTPS enforcement'.
+6. Subdomain Attack Surface: If subdomains were discovered, list the top 5
+   most interesting ones (admin., api., dev., staging., vpn.) as Medium findings
+   requiring investigation.
 
 Client Context (RAG Data):
 {client_context}

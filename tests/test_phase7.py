@@ -67,5 +67,17 @@ def test_soar_safety_cases():
     print("Check soc/audit/soar_actions.jsonl for exact log entries.")
     print("="*60)
 
+def test_cloudflare_ip_blocked_by_guard():
+    """Cloudflare CDN IPs must never be blocked by SOAR"""
+    print("\n[CASE 4] Cloudflare CDN IP (104.18.36.214) - Expected: protected")
+    from soc.safety_guard import SafetyGuard
+    guard = SafetyGuard()
+    cloudflare_ips = ["104.18.36.214", "172.67.0.1", "162.158.100.1"]
+    for ip in cloudflare_ips:
+        safe, reason = guard.is_safe_to_block(ip)
+        assert safe == False, f"Cloudflare IP {ip} should be protected"
+        print(f"✅ CDN IP {ip} correctly protected: {reason}")
+
 if __name__ == "__main__":
     test_soar_safety_cases()
+    test_cloudflare_ip_blocked_by_guard()

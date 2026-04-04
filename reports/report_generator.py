@@ -48,6 +48,26 @@ class ReportGenerator:
             vuln_lines.append(f"- **[{sev}]** {name} : {desc}")
         vulns_md = "\n".join(vuln_lines) if vuln_lines else "- No explicit remote vulnerabilities identified by template scanner."
 
+        # Format subdomains (Phase 12.2 / 13)
+        subdomains = scan_data.get("subdomains", [])
+        subdomain_count = scan_data.get("subdomain_count", 0)
+        subdomains_md = ""
+        if subdomain_count > 0:
+            subdomain_list = "\n".join([f"| {s} | Active |" for s in subdomains])
+            subdomains_md = f"""
+---
+
+## 3. Attack Surface — Discovered Subdomains
+The following subdomains were identified via passive reconnaissance (subfinder):
+
+| Subdomain | Status |
+|-----------|--------|
+{subdomain_list}
+
+> [!NOTE]
+> Each subdomain represents an additional attack vector requiring individual assessment.
+"""
+
         if not client_context or client_context == "No Context Found":
             context_formatted = "_No client infrastructure context located._"
         else:
@@ -72,10 +92,10 @@ The following services were identified on the target infrastructure during the a
 ### Vulnerabilities
 The following template-based findings were detected:
 {vulns_md}
-
+{subdomains_md}
 ---
 
-## 3. Context Applied (Memory Layer)
+## 4. Context Applied (Memory Layer)
 The Orchestrator actively analyzed the raw data against the following known infrastructure baseline parameters to filter false positives:
 {context_formatted}
 """
