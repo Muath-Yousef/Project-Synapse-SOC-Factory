@@ -7,6 +7,10 @@ import os
 
 logger = logging.getLogger(__name__)
 
+class ClientProfileNotFoundError(Exception):
+    """Exception raised when a client profile is not found in the vector store."""
+    pass
+
 class VectorStore:
     """
     Manages the ChromaDB instance for storing and retrieving context
@@ -84,9 +88,10 @@ class VectorStore:
             )
             logger.info(f"Ingested {len(documents)} controls for {framework_name}")
 
-    def query_context(self, collection_name: str, query_text: str, n_results: int = 1) -> List[str]:
+    def query_context(self, collection_name: str, query_text: str, n_results: int = 1, client_id: str = None) -> List[str]:
         """
         Queries ChromaDB for semantic context matching the query_text.
+        If client_id is provided, applies a strict metadata filter.
         """
         collection = None
         if collection_name == "clients":
@@ -97,13 +102,31 @@ class VectorStore:
             logger.error(f"Unknown collection: {collection_name}")
             return []
 
+        # Case 1: Client profile search must verify it's onboarded
+        if client_id and collection_name == "clients":
+            # ChromaDB check if client exists in metadata keys
+            count = collection.count()
+            if count == 0:
+                raise ClientProfileNotFoundError(f"No clients onboarded in '{collection_name}' collection.")
+            
+            # Simple check for existence of the ID
+            check = collection.get(where={"client_name": {"$eq": client_id}})
+            if not check or not check["ids"]:
+                raise ClientProfileNotFoundError(f"Client '{client_id}' not found in '{collection_name}' collection.")
+
         if collection.count() == 0:
             logger.warning(f"Collection '{collection_name}' is empty. Returning no context.")
             return []
 
+        # Prepare filter
+        where_filter = None
+        if client_id:
+            where_filter = {"client_name": {"$eq": client_id}}
+
         results = collection.query(
             query_texts=[query_text],
-            n_results=n_results
+            n_results=n_results,
+            where=where_filter
         )
         
         # Results structure: {'documents': [['doc1', 'doc2']]}

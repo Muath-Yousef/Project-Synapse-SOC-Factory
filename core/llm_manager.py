@@ -3,6 +3,10 @@ import os
 import json
 from typing import Dict, Any
 from dotenv import load_dotenv
+from core.rate_limiter import RateLimiter
+
+load_dotenv()
+_limiter = RateLimiter(calls_per_minute=int(os.getenv("GEMINI_RPM_LIMIT", "15")))
 
 try:
     from google import genai
@@ -31,6 +35,7 @@ class LLMManager:
         else:
             self.live_mode = False
 
+    @_limiter
     def analyze_scan(self, scan_json: Dict[str, Any], client_context: str) -> str:
         """
         Takes standardized JSON and RAG Context to produce an intelligent Triage Report.

@@ -11,8 +11,9 @@ from tools.nmap_tool import NmapTool
 from parsers.nmap_parser import NmapParser
 from tools.nuclei_tool import NucleiTool
 from parsers.nuclei_parser import NucleiParser
+from parsers.nuclei_parser import NucleiParser
 from parsers.aggregator import Aggregator
-from knowledge.vector_store import VectorStore
+from knowledge.vector_store import VectorStore, ClientProfileNotFoundError
 from core.llm_manager import LLMManager
 from reports.report_generator import ReportGenerator
 import yaml
@@ -46,9 +47,21 @@ class Orchestrator:
 
         # Step A: Fetch Context
         logger.info("\n[STEP A] Grabbing Context (Memory Retrieval)...")
-        context_results = self.vector_store.query_context("clients", client_id, n_results=1)
-        client_context = context_results[0] if context_results else "No Context Found"
-        logger.info(f"Context Snippet: {client_context[:100]}..." if client_context != "No Context Found" else "No Context snippet.")
+        try:
+            # Query the 'clients' collection with a strict filter on client_id
+            context_results = self.vector_store.query_context("clients", client_id, n_results=1, client_id=client_id)
+            if not context_results:
+                client_context = "⚠️ No contextual baseline found for this finding — triage may be incomplete"
+                logger.warning(f"No results found for query matching client_id: {client_id}")
+            else:
+                client_context = context_results[0]
+                logger.info(f"Context Snippet: {client_context[:100]}...")
+        except ClientProfileNotFoundError as e:
+            logger.error(f"Onboarding Error: {e}")
+            raise e
+        except Exception as e:
+            logger.error(f"Unexpected retrieval error: {e}")
+            client_context = "No Context Found"
 
         # Step B: Scan & Parse
         logger.info(f"\n[STEP B] Standardizing Data (Nmap Scanner -> Parser -> Aggregator)...")
