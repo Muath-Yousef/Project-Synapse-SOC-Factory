@@ -9,11 +9,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("onboarding")
 
+from datetime import datetime, timedelta
+
 TIER_CONFIGS = {
-    "soc_lite"     : {"log_cap_gb_day": 2,  "scan_frequency": "monthly", "compliance": []},
-    "soc_standard" : {"log_cap_gb_day": 10, "scan_frequency": "weekly",  "compliance": ["NCA_ECC"]},
-    "soc_pro"      : {"log_cap_gb_day": 20, "scan_frequency": "weekly",  "compliance": ["NCA_ECC", "ISO_27001"]},
-    "soc_grc"      : {"log_cap_gb_day": 30, "scan_frequency": "weekly",  "compliance": ["NCA_ECC", "ISO_27001", "UAE_PDPL"]},
+    "soc_lite"     : {"log_cap_gb_day": 2,  "scan_frequency": "monthly", "compliance": [], "price": 500},
+    "soc_standard" : {"log_cap_gb_day": 10, "scan_frequency": "weekly",  "compliance": ["NCA_ECC"], "price": 1500},
+    "soc_pro"      : {"log_cap_gb_day": 20, "scan_frequency": "weekly",  "compliance": ["NCA_ECC", "ISO_27001"], "price": 3000},
+    "soc_grc"      : {"log_cap_gb_day": 30, "scan_frequency": "weekly",  "compliance": ["NCA_ECC", "ISO_27001", "UAE_PDPL"], "price": 5000},
 }
 
 INDUSTRY_TECH_STACKS = {
@@ -27,6 +29,11 @@ INDUSTRY_TECH_STACKS = {
 def build_client_profile(name, target, email, industry, tier, whitelisted_ips=None):
     tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS["soc_standard"])
     tech_stack = INDUSTRY_TECH_STACKS.get(industry, INDUSTRY_TECH_STACKS["Default"])
+    
+    # Financial Dates
+    start = datetime.now()
+    end = start + timedelta(days=365)
+    
     return {
         "client_name": name,
         "industry": industry,
@@ -40,6 +47,13 @@ def build_client_profile(name, target, email, industry, tier, whitelisted_ips=No
         "whitelisted_ips": whitelisted_ips or [],
         "infrastructure": {"os": [], "web_server": [], "platform": []},
         "security_profile": {"risk_tolerance": "low"},
+        "billing": {
+            "monthly_fee": tier_config["price"],
+            "currency": "USD",
+            "contract_start": start.strftime("%Y-%m-%d"),
+            "contract_end": end.strftime("%Y-%m-%d"),
+            "status": "active"
+        }
     }
 
 def save_profile(profile, profiles_dir="knowledge/client_profiles"):

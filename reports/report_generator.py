@@ -95,7 +95,32 @@ class ReportGenerator:
         else:
             delta_md = "\n---\n\n## 2.2 Infrastructure Drift\n- No changes detected since the previous automated audit."
 
-        # 5. Format subdomains
+        # 5. Format Reputation & Blacklists (Phase 20)
+        reputation_md = ""
+        blacklist_hits = [f for f in scan_data.get("findings", []) if f.get("finding_type") == "reputation_blacklist"]
+        
+        if blacklist_hits:
+            hit = blacklist_hits[0]
+            reputation_md = f"""
+---
+
+## 2.3 Global Reputation Analysis
+> [!CAUTION]
+> **Status: BLACKLISTED**
+> This IP was found on {hit.get('hit_count')} global RBLs.
+> **Impact:** High risk of email rejection and service blocking.
+"""
+        else:
+            reputation_md = f"""
+---
+
+## 2.3 Global Reputation Analysis
+> [!IMPORTANT]
+> **Status: CLEAN**
+> This IP is not listed on any major global blacklists (Spamhaus, Spamcop, etc.).
+"""
+
+        # 6. Format subdomains
         subdomains = scan_data.get("subdomains", [])
         subdomain_count = scan_data.get("subdomain_count", 0)
         subdomains_md = ""

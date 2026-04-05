@@ -1,31 +1,28 @@
-client_name: "TechCo"
-industry: "Technology"
+billing:
+  contract_end: '2027-04-05'
+  contract_start: '2026-04-05'
+  currency: USD
+  monthly_fee: 1500
+  status: active
+client_name: TechCo
+compliance_requirements:
+- NCA_ECC
+contact_email: security@techco.example.com
+industry: Technology
 infrastructure:
-  os:
-    - "Ubuntu Linux 22.04"
-  platform:
-    - "Docker"
-    - "Kubernetes"
-  web_server:
-    - "Nginx"
-  runtime:
-    - "Node.js"
-    - "Python 3.10"
+  os: []
+  platform: []
+  web_server: []
+log_cap_gb_day: 10
+primary_target: scanme.nmap.org
+scan_frequency: weekly
 security_profile:
-  risk_tolerance: "Low"
-  compliance_requirements:
-    - "NCA"
-    - "ISO 27001"
-  critical_assets:
-    - "Customer Database"
-    - "Payment Gateway API"
-  whitelisted_ips:
-    - "8.8.8.8"
-primary_target: "scanme.nmap.org"
-contact_email: "security@techco.example.com"
+  risk_tolerance: low
+service_tier: soc_standard
 tech_stack_keywords:
-  - "Apache"
-  - "Nginx"
-  - "Ubuntu"
-  - "OpenSSH"
-service_tier: "soc_standard"
+- Nginx
+- Ubuntu
+- Docker
+- Node.js
+- Python
+whitelisted_ips: []

@@ -39,6 +39,8 @@ from soc.delta_analyzer import DeltaAnalyzer
 from soc.compliance_engine import ComplianceEngine
 import time
 
+from tools.blacklist_tool import BlacklistTool
+
 class Orchestrator:
     def __init__(self):
         # Initialize the pipeline components
@@ -50,6 +52,7 @@ class Orchestrator:
         self.dns_tool = DNSTool()
         self.vt_tool = VirusTotalTool()
         self.subfinder_tool = SubfinderTool()
+        self.blacklist_tool = BlacklistTool() # Phase 20
         self.aggregator = Aggregator()
         self.llm = LLMManager()
         self.report_gen = ReportGenerator()
@@ -84,7 +87,7 @@ class Orchestrator:
             return True
 
     def run_triage(self, target_ip: str, client_id: str, **kwargs):
-        logger.info(f"--- [PHASE 19 MONITORING STARTED] ---")
+        logger.info(f"--- [PHASE 20 MONITORING STARTED] ---")
         logger.info(f"Target: {target_ip} | Client ID: {client_id}")
 
         # Step A: Fetch Context
@@ -111,6 +114,12 @@ class Orchestrator:
         try:
             self.aggregator.ingest(self.dns_tool.scan(target_ip))
         except Exception: pass
+
+        try:
+            self.aggregator.ingest(self.blacklist_tool.run(target_ip))
+            logger.info("[Orchestrator] Blacklist RBL check completed.")
+        except Exception as e:
+            logger.error(f"Blacklist check failed: {e}")
             
         if self._is_domain(target_ip):
             try:
