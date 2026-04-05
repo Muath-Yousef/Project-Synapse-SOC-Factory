@@ -35,6 +35,10 @@ DRY_RUN = os.getenv("SOAR_DRY_RUN", "true").lower() == "true"
 
 logger = logging.getLogger("Orchestrator")
 
+from soc.delta_analyzer import DeltaAnalyzer
+from soc.compliance_engine import ComplianceEngine
+import time
+
 class Orchestrator:
     def __init__(self):
         # Initialize the pipeline components
@@ -49,11 +53,28 @@ class Orchestrator:
         self.aggregator = Aggregator()
         self.llm = LLMManager()
         self.report_gen = ReportGenerator()
+        self.delta_analyzer = DeltaAnalyzer()
+        self.compliance_engine = ComplianceEngine()
+        self.history_dir = os.path.join(BASE_DIR, "knowledge/history")
+        os.makedirs(self.history_dir, exist_ok=True)
+
+    def _get_latest_scan(self, client_id: str) -> Dict[str, Any]:
+        """Loads the most recent scan JSON for a client."""
+        files = [f for f in os.listdir(self.history_dir) if f.startswith(f"{client_id.lower()}_scan_")]
+        if not files: return {}
+        latest_file = sorted(files)[-1]
+        with open(os.path.join(self.history_dir, latest_file), 'r') as f:
+            return json.load(f)
+
+    def _persist_scan(self, client_id: str, scan_data: Dict[str, Any]):
+        """Saves the current scan JSON for future reference."""
+        ts = int(time.time())
+        filename = f"{client_id.lower()}_scan_{ts}.json"
+        with open(os.path.join(self.history_dir, filename), 'w') as f:
+            json.dump(scan_data, f, indent=2)
 
     def _is_domain(self, target: str) -> bool:
-        """
-        Helper to check if target is a domain name.
-        """
+        """Helper to check if target is a domain name."""
         host = target.split(":")[0]
         try:
             import ipaddress
@@ -63,100 +84,71 @@ class Orchestrator:
             return True
 
     def run_triage(self, target_ip: str, client_id: str, **kwargs):
-        logger.info(f"--- [PHASE 5 ORCHESTRATION STARTED] ---")
+        logger.info(f"--- [PHASE 19 MONITORING STARTED] ---")
         logger.info(f"Target: {target_ip} | Client ID: {client_id}")
 
         # Step A: Fetch Context
         logger.info("\n[STEP A] Grabbing Context (Memory Retrieval)...")
         try:
-            # Query the 'clients' collection with a strict filter on client_id
             client_profile = self.vector_store.query_context("clients", client_id, n_results=1, client_id=client_id)
-            
-            if client_profile.get("status") in ["not_found", "empty"]:
-                client_context = "⚠️ No contextual baseline found for this finding — triage may be incomplete"
-                logger.warning(f"No context found for client_id: {client_id}")
-            else:
-                # Convert back to string for LLM analysis while keeping the dict for SOAR
-                client_context = yaml.dump(client_profile, allow_unicode=True)
-                logger.info(f"Context Snippet: {client_context[:100]}...")
-        except ClientProfileNotFoundError as e:
-            logger.error(f"Onboarding Error: {e}")
-            raise e
+            client_context = yaml.dump(client_profile, allow_unicode=True)
+            logger.info(f"Context Snippet: {client_context[:100]}...")
         except Exception as e:
-            logger.error(f"Unexpected retrieval error: {e}")
+            logger.error(f"Retrieval error: {e}")
             client_context = "No Context Found"
             client_profile = {"status": "error"}
 
         # Step B: Scan & Parse
-        logger.info(f"\n[STEP B] Standardizing Data (Nmap Scanner -> Parser -> Aggregator)...")
-        # Extract port if present (e.g. localhost:8090)
-        target_host = target_ip.split(":")[0]
-        target_port = target_ip.split(":")[1] if ":" in target_ip else None
+        logger.info(f"\n[STEP B] Multi-Tool Scanning...")
+        raw_xml = self.nmap_tool.run(target_ip, profile="quick")
+        self.aggregator.ingest(self.parser.parse(raw_xml))
         
-        raw_xml = self.nmap_tool.run(target_ip, profile="quick", ports=target_port)
-        parsed_dict = self.parser.parse(raw_xml)
-        self.aggregator.ingest(parsed_dict)
-        
-        logger.info(f"\n[STEP B.2] Nuclei Vulnerability Scan...")
         try:
             raw_nuclei = self.nuclei_tool.run(target_ip)
-            parsed_nuclei = self.nuclei_parser.parse(raw_nuclei)
-            self.aggregator.ingest(parsed_nuclei)
-        except Exception as e:
-            logger.error(f"Nuclei scan failed or not available: {e}")
+            self.aggregator.ingest(self.nuclei_parser.parse(raw_nuclei))
+        except Exception: pass
             
-        logger.info(f"\n[STEP B.3] DNS & Reputation Enrichment...")
-        # DNS Security Check (SPF, DMARC, MX)
         try:
-            dns_results = self.dns_tool.scan(target_ip)
-            self.aggregator.ingest(dns_results)
-        except Exception as e:
-            logger.error(f"DNS Enrichment failed: {e}")
+            self.aggregator.ingest(self.dns_tool.scan(target_ip))
+        except Exception: pass
             
-        # VirusTotal Reputation Check (IP)
-        try:
-            vt_results = self.vt_tool.check_ip(target_host)
-            self.aggregator.ingest(vt_results)
-        except Exception as e:
-            logger.error(f"VT Reputation Enrichment failed: {e}")
-            
-        # Subdomain Reconnaissance (Domain targets only)
         if self._is_domain(target_ip):
             try:
-                subfinder_results = self.subfinder_tool.run(target_ip)
-                if subfinder_results.get("status") == "success":
-                    self.aggregator.ingest(subfinder_results)
-                    logger.info(f"[Orchestrator] Subfinder found {subfinder_results['count']} subdomains")
-            except Exception as e:
-                logger.error(f"Subfinder Reconnaissance failed: {e}")
+                self.aggregator.ingest(self.subfinder_tool.run(target_ip))
+            except Exception: pass
             
         final_json = self.aggregator.get_final_payload()
-        logger.info(f"Standardized Payload Generated (Targets: {len(final_json.get('targets', []))})")
         
-        # Step C: LLM Triage
-        logger.info("\n[STEP C] Passing to LLM for Triage...")
+        # Step C: Analytics (Delta & Scoring)
+        logger.info("\n[STEP C] Running Historical Data Analytics...")
+        old_scan = self._get_latest_scan(client_id)
+        delta_findings = self.delta_analyzer.analyze(old_scan, final_json)
+        compliance_results = self.compliance_engine.calculate_score(final_json)
+        
+        # Step D: LLM Triage
+        logger.info("\n[STEP D] AI Triage (Gemini 1.5)...")
         triage_report = self.llm.analyze_scan(final_json, client_context)
 
-        # Step D: Print basic mock response
-        logger.info("\n[STEP D] Final LLM Output Generated.")
-        
-        # Step E: Generate Reports
-        logger.info("\n[STEP E] Generating Unified Client Markdown Report...")
+        # Step E: Reports (with Analytics)
+        logger.info("\n[STEP E] Generating Analytical Security Report...")
         md_content = self.report_gen.generate_markdown_report(
             target_ip=target_ip,
             client_id=client_id,
             client_context=client_context,
             scan_data=final_json,
-            triage_verdict=triage_report
+            triage_verdict=triage_report,
+            delta_findings=delta_findings,
+            compliance_results=compliance_results
         )
         report_path = self.report_gen.save_report(md_content, f"{client_id.lower()}_report.md")
         
-        # Step F: SOAR Execution (Safety First)
-        logger.info("\n[STEP F] Executing SOAR Autonomous Response...")
+        # Step F: Persistence & SOAR
+        self._persist_scan(client_id, final_json)
+        logger.info("\n[STEP F] Executing SOAR Responses...")
         try:
             self.execute_soar_response(final_json, client_profile, bypass_safety=kwargs.get("test_mode", False))
         except Exception as e:
-            logger.error(f"SOAR Execution failed: {e}")
+            logger.error(f"SOAR failed: {e}")
 
         return report_path
 

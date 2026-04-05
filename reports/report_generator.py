@@ -14,31 +14,48 @@ class ReportGenerator:
         self.output_dir = os.path.join(base_dir, output_dir)
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def generate_markdown_report(self, target_ip: str, client_id: str, client_context: str, scan_data: Dict[str, Any], triage_verdict: str) -> str:
-        logger.info(f"[ReportGenerator] Assembling Markdown report for [{client_id}] -> {target_ip}...")
+    def generate_markdown_report(self, target_ip: str, client_id: str, client_context: str, scan_data: Dict[str, Any], triage_verdict: str, delta_findings: Dict[str, Any] = None, compliance_results: Dict[str, Any] = None) -> str:
+        logger.info(f"[ReportGenerator] Assembling Analytical report for [{client_id}] -> {target_ip}...")
         
-        # Extract variables reliably
+        # 1. Formatting Security Posture Card
+        score_md = ""
+        if compliance_results:
+            score = compliance_results.get("score", 0)
+            grade = compliance_results.get("grade", "F")
+            # Visual progress bar (roughly)
+            bar = "█" * (score // 10) + "░" * (10 - (score // 10))
+            score_md = f"""
+## 1.1 Security Posture Score
+| Metric | Value |
+|--------|-------|
+| **Score** | `{score}/100` |
+| **Grade** | `{grade}` |
+| **Status** | `[{bar}]` |
+
+> [!TIP]
+> This score is calculated based on weighted findings. A single Critical finding significantly impacts this metric.
+"""
+
+        # 2. Extract variables reliably
         targets = scan_data.get("targets", [])
         host_info = targets[0] if targets else {}
         open_ports = host_info.get("open_ports", [])
         
-        # Formatting ports for organized markdown
+        # Formatting ports
         port_lines = []
         for p in open_ports:
-            # We cast to dict or handle the port struct accurately
             if isinstance(p, dict):
                 port_num = p.get('port', 'Unknown')
                 protocol = str(p.get('protocol', 'tcp')).upper()
-                svc = getattr(p, 'service', p.get('service', 'Unknown'))
+                svc = p.get('service', 'Unknown')
                 ver = p.get('version', '')
                 line = f"- **Port {port_num}/{protocol}** \t— Service: `{svc}` " + (f"(Version: {ver})" if ver and ver != 'Unknown' else "")
             else:
                 line = f"- {str(p)}"
             port_lines.append(line)
-            
-        ports_md = "\n".join(port_lines) if port_lines else "- No open ports discovered on target."
+        ports_md = "\n".join(port_lines) if port_lines else "- No open ports discovered."
         
-        # Format vulnerabilities
+        # 3. Format vulnerabilities
         vulns = host_info.get("vulnerabilities", [])
         vuln_lines = []
         for v in vulns:
@@ -46,9 +63,39 @@ class ReportGenerator:
             name = v.get("name", "Unknown")
             desc = v.get("description", "")
             vuln_lines.append(f"- **[{sev}]** {name} : {desc}")
-        vulns_md = "\n".join(vuln_lines) if vuln_lines else "- No explicit remote vulnerabilities identified by template scanner."
+        vulns_md = "\n".join(vuln_lines) if vuln_lines else "- No explicit remote vulnerabilities identified."
 
-        # Format subdomains (Phase 12.2 / 13)
+        # 4. Format Delta Analytics (Drift)
+        delta_md = ""
+        if delta_findings and any(delta_findings.values()):
+            new_p = delta_findings.get("new_ports", [])
+            new_v = delta_findings.get("new_vulnerabilities", [])
+            new_s = delta_findings.get("new_subdomains", [])
+            
+            delta_lines = []
+            if new_p: delta_lines.append("### 🆕 New Infrastructure Detected")
+            for p in new_p: delta_lines.append(f"- Port `{p['port']}` ({p['service']}) discovered on {p['target']}")
+            
+            if new_v: delta_lines.append("### 🆕 New Vulnerabilities Detected")
+            for v in new_v: delta_lines.append(f"- **[{v['severity']}]** {v.get('name')} ({v.get('vuln_id')})")
+            
+            if new_s: delta_lines.append("### 🆕 New Subdomains Discovered")
+            for s in new_s: delta_lines.append(f"- {s}")
+            
+            delta_content = "\n".join(delta_lines)
+            delta_md = f"""
+---
+
+## 2.2 Infrastructure Drift (Analysis since last scan)
+{delta_content}
+
+> [!IMPORTANT]
+> Newly detected infrastructure usually represents the highest risk of unauthorized expansion.
+"""
+        else:
+            delta_md = "\n---\n\n## 2.2 Infrastructure Drift\n- No changes detected since the previous automated audit."
+
+        # 5. Format subdomains
         subdomains = scan_data.get("subdomains", [])
         subdomain_count = scan_data.get("subdomain_count", 0)
         subdomains_md = ""
@@ -58,26 +105,20 @@ class ReportGenerator:
 ---
 
 ## 3. Attack Surface — Discovered Subdomains
-The following subdomains were identified via passive reconnaissance (subfinder):
-
 | Subdomain | Status |
 |-----------|--------|
 {subdomain_list}
-
-> [!NOTE]
-> Each subdomain represents an additional attack vector requiring individual assessment.
 """
 
-        if not client_context or client_context == "No Context Found":
-            context_formatted = "_No client infrastructure context located._"
-        else:
-            context_formatted = f"```yaml\n{str(client_context).strip()}\n```"
+        context_formatted = f"```yaml\n{str(client_context).strip()}\n```" if client_context != "No Context Found" else "_No context._"
 
         markdown = f"""# 🛡️ Synapse Security Report for [{client_id}]
 
 ## 1. Executive Summary
 - **Target IP investigated:** `{target_ip}`
-- **Report Status:** Finalized (Automated AI Triage)
+- **Report Status:** Finalized (Analytical Monitoring)
+
+{score_md}
 
 **Verdict from AI Triage Engine:**
 > {triage_verdict.strip()}
@@ -86,17 +127,18 @@ The following subdomains were identified via passive reconnaissance (subfinder):
 
 ## 2. Technical Details
 ### Discovery & Mapping
-The following services were identified on the target infrastructure during the automated scan phase:
 {ports_md}
 
 ### Vulnerabilities
-The following template-based findings were detected:
 {vulns_md}
+
+{delta_md}
+
 {subdomains_md}
+
 ---
 
 ## 4. Context Applied (Memory Layer)
-The Orchestrator actively analyzed the raw data against the following known infrastructure baseline parameters to filter false positives:
 {context_formatted}
 """
         return markdown
