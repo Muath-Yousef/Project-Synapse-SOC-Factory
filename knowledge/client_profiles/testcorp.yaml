@@ -1,0 +1,23 @@
+client_name: TestCorp
+compliance_requirements:
+- NCA_ECC
+contact_email: sec@testcorp.com
+industry: Technology
+infrastructure:
+  os: []
+  platform: []
+  web_server: []
+log_cap_gb_day: 10
+primary_target: testcorp.com
+scan_frequency: weekly
+security_profile:
+  risk_tolerance: low
+service_tier: soc_standard
+tech_stack_keywords:
+- Nginx
+- Ubuntu
+- Docker
+- Node.js
+- Python
+whitelisted_ips:
+- 10.0.0.1
