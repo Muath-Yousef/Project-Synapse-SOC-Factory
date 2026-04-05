@@ -6,14 +6,16 @@ class TestPhase16(unittest.TestCase):
 
     def test_onboarding_creates_profile(self):
         from onboarding.onboard_client import build_client_profile, save_profile
+        import tempfile
         profile = build_client_profile("TestCorp","testcorp.com","sec@testcorp.com","Technology","soc_standard",["10.0.0.1"])
         self.assertEqual(profile["client_name"], "TestCorp")
         self.assertEqual(profile["service_tier"], "soc_standard")
         self.assertIn("Nginx", profile["tech_stack_keywords"])
         self.assertEqual(profile["whitelisted_ips"], ["10.0.0.1"])
-        filepath = save_profile(profile)
-        self.assertTrue(__import__("pathlib").Path(filepath).exists())
-        print(f"✅ Profile created: {filepath}")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = save_profile(profile, profiles_dir=tmpdir)
+            self.assertTrue(__import__("pathlib").Path(filepath).exists())
+        print(f"✅ Profile structure valid (saved to temp dir, no production pollution)")
 
     def test_onboarding_tier_configs(self):
         from onboarding.onboard_client import TIER_CONFIGS

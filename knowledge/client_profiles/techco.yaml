@@ -28,3 +28,4 @@ tech_stack_keywords:
   - "Nginx"
   - "Ubuntu"
   - "OpenSSH"
+service_tier: "soc_standard"
