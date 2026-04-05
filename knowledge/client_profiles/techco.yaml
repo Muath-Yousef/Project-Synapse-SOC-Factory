@@ -21,3 +21,10 @@ security_profile:
     - "Payment Gateway API"
   whitelisted_ips:
     - "8.8.8.8"
+primary_target: "scanme.nmap.org"
+contact_email: "security@techco.example.com"
+tech_stack_keywords:
+  - "Apache"
+  - "Nginx"
+  - "Ubuntu"
+  - "OpenSSH"
