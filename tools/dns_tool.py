@@ -31,8 +31,7 @@ class DNSTool(BaseTool):
     }
 
     def __init__(self):
-        # We don't need a binary path for dnspython
-        pass
+        super().__init__("DNSTool")
 
     def get_description(self) -> str:
         return "Analyzes DNS records (SPF, DMARC, MX) for security compliance."
@@ -125,7 +124,54 @@ class DNSTool(BaseTool):
                 "note": dkim_results.get("note", "")
             })
 
+        # 5. Check BIMI (Brand Identity)
+        bimi_record = self._get_txt_record(f"default._bimi.{domain}", "v=BIMI1")
+        if bimi_record:
+            results["findings"].append({
+                "type": "dns_bimi",
+                "record": bimi_record,
+                "severity": "low",
+                "description": "BIMI record found for domain."
+            })
+        else:
+            results["findings"].append({
+                "type": "dns_bimi_missing",
+                "severity": "info",
+                "description": "BIMI record not found. Optional but recommended for brand identity."
+            })
+
+        # 6. Check for SMTP Open Relay (Security Critical)
+        mx_hosts = [r.split()[-1].rstrip(".") for r in self._get_mx_records(domain)]
+        for mx in mx_hosts[:2]: # Check top 2 MX servers
+            if self._is_open_relay(mx):
+                results["findings"].append({
+                    "type": "smtp_open_relay",
+                    "target": mx,
+                    "severity": "critical",
+                    "description": f"SMTP server {mx} appears to be an OPEN RELAY! High security risk."
+                })
+        
         return results
+
+    def _is_open_relay(self, mx_host: str) -> bool:
+        """
+        Attempts a basic SMTP handshake to check for unauthenticated relaying.
+        Very conservative check to avoid being flagged.
+        """
+        import smtplib, socket
+        try:
+            # We connect and try to RCPT TO an external address
+            server = smtplib.SMTP(mx_host, 25, timeout=10)
+            server.ehlo("synapse-soc.com")
+            server.mail("test@synapse-soc.com")
+            # This is the critical part: can we send to an external domain?
+            code, msg = server.rcpt("synapse_relay_test@gmail.com")
+            server.quit()
+            
+            # code 250 means OK, which indicates open relay
+            return code == 250
+        except Exception:
+            return False
 
     def check_dkim(self, domain: str) -> dict:
         """

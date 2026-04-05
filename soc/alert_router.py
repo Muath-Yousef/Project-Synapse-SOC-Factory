@@ -75,9 +75,43 @@ class AlertRouter:
 
     def route(self, alert: AlertContext) -> List[ActionType]:
         key = (alert.severity.lower(), alert.finding_type.lower())
+        
+        # Enrich with GeoIP for external IPs
+        geo_info = self._enrich_geoip(alert.target_ip)
+        if geo_info:
+            logger.info(f"[Router] GeoIP for {alert.target_ip}: {geo_info.get('country_name')} ({geo_info.get('org')})")
+            alert.raw_finding["geoip"] = geo_info
+
         actions = self.ROUTING_TABLE.get(key)
         if not actions:
             logger.warning(f"[Router] No rule for {key} — defaulting to NOTIFY_ONLY")
             actions = [ActionType.NOTIFY_ONLY]
         logger.info(f"[Router] {alert.client_id} | {key} → {actions}")
         return actions
+
+    def _enrich_geoip(self, ip: str) -> Optional[Dict[str, Any]]:
+        """
+        Enriches the alert with geographic data using ipapi.co (free tier).
+        Returns None for internal/private IPs.
+        """
+        import ipaddress, requests
+        try:
+            addr = ipaddress.ip_address(ip)
+            if addr.is_private or addr.is_loopback:
+                return None
+            
+            # ipapi.co free tier (no key needed for low volume)
+            response = requests.get(f"https://ipapi.co/{ip}/json/", timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if not data.get("error"):
+                    return {
+                        "country": data.get("country_code"),
+                        "country_name": data.get("country_name"),
+                        "city": data.get("city"),
+                        "org": data.get("org"),
+                        "isp": data.get("isp")
+                    }
+        except Exception as e:
+            logger.error(f"[Router] GeoIP enrichment failed for {ip}: {e}")
+        return None
