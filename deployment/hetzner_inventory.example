@@ -1,3 +1,4 @@
 [node_b]
-# Replace with your actual Node B public IP address
-192.168.1.100 ansible_user=root ansible_ssh_private_key_file=~/.ssh/id_rsa
+# Replace YOUR_HETZNER_PUBLIC_IP with the actual public IP from Hetzner Cloud console
+# Example: 49.13.XX.XX ansible_user=root ansible_ssh_private_key_file=~/.ssh/id_rsa
+YOUR_HETZNER_PUBLIC_IP ansible_user=root ansible_ssh_private_key_file=~/.ssh/id_rsa

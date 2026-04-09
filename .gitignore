@@ -1,6 +1,7 @@
 # Environment and Secrets
 .env
 .env.template
+deployment/production.env
 *.pem
 *.key
 
