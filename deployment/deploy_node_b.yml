@@ -1,0 +1,61 @@
+# deploy_node_b.yml — Node B (SOAR + TheHive + webhook)
+---
+- hosts: node_b
+  become: true
+  tasks:
+    - name: Install Docker
+      shell: curl -fsSL https://get.docker.com | sh
+      args:
+        creates: /usr/bin/docker
+
+    - name: Clone Synapse repo
+      git:
+        repo: https://github.com/Muath-Yousef/Project-Synapse-SOC-Factory.git
+        dest: /opt/synapse
+        version: main
+
+    - name: Copy .env
+      copy:
+        src: ./production.env
+        dest: /opt/synapse/.env
+        mode: '0600'
+
+    - name: Install system dependencies for Python
+      apt:
+        name:
+          - python3-pip
+          - python3-venv
+          - testssl.sh
+          - nmap
+        state: present
+        update_cache: yes
+
+    - name: Create Python virtual environment and install deps
+      pip:
+        requirements: /opt/synapse/requirements.txt
+        virtualenv: /opt/synapse/venv
+
+    - name: Start webhook server (systemd)
+      copy:
+        dest: /etc/systemd/system/synapse-webhook.service
+        content: |
+          [Unit]
+          Description=Synapse Webhook Server
+          After=network.target
+
+          [Service]
+          WorkingDirectory=/opt/synapse
+          ExecStart=/opt/synapse/venv/bin/python3 soc/webhook_server.py
+          Restart=always
+          User=root
+          EnvironmentFile=/opt/synapse/.env
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start Webhook service
+      systemd:
+        name: synapse-webhook
+        daemon_reload: yes
+        enabled: yes
+        state: restarted
