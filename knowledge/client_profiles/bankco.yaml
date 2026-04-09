@@ -1,3 +1,9 @@
+billing:
+  contract_end: '2027-04-09'
+  contract_start: '2026-04-09'
+  currency: USD
+  monthly_fee: 1500
+  status: active
 client_name: BankCo
 compliance_requirements:
 - NCA_ECC

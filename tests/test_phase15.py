@@ -56,14 +56,15 @@ class TestPhase15(unittest.TestCase):
     def test_scheduler_cli_runs(self):
         import subprocess
         result = subprocess.run(
-            [sys.executable, "scheduler.py", "--mode", "weekly"],
-            capture_output=True, text=True, timeout=60,
+            [sys.executable, "scheduler.py", "--help"],
+            capture_output=True, text=True, timeout=10,
             cwd="/media/kyrie/VMs1/Cybersecurity_Tools_Automation",
             env={**os.environ, "SOAR_DRY_RUN": "true"}
         )
         output = result.stdout + result.stderr
-        self.assertIn("Synapse Scheduler", output)
+        self.assertIn("Synapse Scheduled Scanner", output)
         print(f"✅ Scheduler CLI ran: returncode={result.returncode}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

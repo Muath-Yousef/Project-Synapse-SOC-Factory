@@ -45,6 +45,23 @@ class AlertRouter:
         ("low",      "dns_missing_dkim") : [ActionType.NOTIFY_ONLY],
         ("high",     "ip_reputation")    : [ActionType.NOTIFY_ONLY],
         ("medium",   "ip_reputation")    : [ActionType.NOTIFY_ONLY],
+        # Phase 22: DNS finding variants from DNSTool
+        ("high",     "dns_spf_missing")       : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
+        ("medium",   "dns_spf_missing")       : [ActionType.NOTIFY_ONLY],
+        ("low",      "dns_spf_missing")       : [ActionType.NOTIFY_ONLY],
+        ("high",     "dns_dmarc_missing")     : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
+        ("medium",   "dns_dmarc_missing")     : [ActionType.NOTIFY_ONLY],
+        ("low",      "dns_dmarc_missing")     : [ActionType.NOTIFY_ONLY],
+        ("high",     "dns_dkim_not_found")    : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
+        ("medium",   "dns_dkim_not_found")    : [ActionType.NOTIFY_ONLY],
+        ("low",      "dns_dkim_not_found")    : [ActionType.NOTIFY_ONLY],
+        ("high",     "dns_bimi_missing")      : [ActionType.NOTIFY_ONLY],
+        ("medium",   "dns_bimi_missing")      : [ActionType.NOTIFY_ONLY],
+        ("low",      "dns_bimi_missing")      : [ActionType.NOTIFY_ONLY],
+        ("info",     "dns_bimi_missing")      : [ActionType.NOTIFY_ONLY],
+        ("high",     "cleartext_http")        : [ActionType.NOTIFY_ONLY, ActionType.PATCH_ADVISORY],
+        ("medium",   "cleartext_http")        : [ActionType.NOTIFY_ONLY],
+        ("low",      "cleartext_http")        : [ActionType.NOTIFY_ONLY],
         ("critical", "malware")              : [ActionType.ESCALATE_HUMAN],
         ("high",     "malware")              : [ActionType.ESCALATE_HUMAN],
         ("critical", "data_exfiltration")    : [ActionType.BLOCK_IP, ActionType.ESCALATE_HUMAN],
@@ -91,19 +108,24 @@ class AlertRouter:
 
     def _enrich_geoip(self, ip: str) -> Optional[Dict[str, Any]]:
         """
-        Enriches the alert with geographic data using ipapi.co (free tier).
+        Enriches the alert with geographic data.
         Returns None for internal/private IPs.
+        Returns a dict (possibly with empty fields if API fails) for external IPs.
+        Uses ipapi.co as primary, ip-api.com as fallback.
         """
         import ipaddress, requests
         try:
             addr = ipaddress.ip_address(ip)
             if addr.is_private or addr.is_loopback:
                 return None
-            
-            # ipapi.co free tier (no key needed for low volume)
-            response = requests.get(f"https://ipapi.co/{ip}/json/", timeout=5)
-            if response.status_code == 200:
-                data = response.json()
+        except ValueError:
+            pass  # Not a valid IP, treat as external
+
+        # Primary: ipapi.co (free tier)
+        try:
+            r = requests.get(f"https://ipapi.co/{ip}/json/", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
                 if not data.get("error"):
                     return {
                         "country": data.get("country_code"),
@@ -113,5 +135,24 @@ class AlertRouter:
                         "isp": data.get("isp")
                     }
         except Exception as e:
-            logger.error(f"[Router] GeoIP enrichment failed for {ip}: {e}")
-        return None
+            logger.warning(f"[Router] GeoIP primary (ipapi.co) failed for {ip}: {e}")
+
+        # Fallback: ip-api.com (free, no key)
+        try:
+            r = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,city,org,isp", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("status") == "success":
+                    return {
+                        "country": data.get("countryCode"),
+                        "country_name": data.get("country"),
+                        "city": data.get("city"),
+                        "org": data.get("org"),
+                        "isp": data.get("isp")
+                    }
+        except Exception as e:
+            logger.error(f"[Router] GeoIP fallback (ip-api.com) failed for {ip}: {e}")
+
+        # Both APIs failed — return empty dict so callers always get a dict for external IPs
+        logger.warning(f"[Router] GeoIP unavailable for {ip} — returning empty geo record")
+        return {"country": None, "country_name": None, "city": None, "org": None, "isp": None}
