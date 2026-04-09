@@ -1,0 +1,96 @@
+{
+  "summary_type": "DataStandardization",
+  "targets": [
+    {
+      "ip": "45.33.32.156",
+      "status": "up",
+      "open_ports": [
+        {
+          "port": 22,
+          "protocol": "tcp",
+          "service": "ssh",
+          "version": "Unknown"
+        },
+        {
+          "port": 80,
+          "protocol": "tcp",
+          "service": "http",
+          "version": "Unknown"
+        }
+      ],
+      "vulnerabilities": [],
+      "dns_records": [
+        {
+          "type": "dns_spf_missing",
+          "severity": "high",
+          "description": "Missing SPF record! Domain is vulnerable to spoofing."
+        },
+        {
+          "type": "dns_dmarc_missing",
+          "severity": "high",
+          "description": "Missing DMARC record! High risk of unauthorized email usage."
+        },
+        {
+          "type": "dns_dkim_not_found",
+          "severity": "medium",
+          "description": "No common DKIM selectors discovered. Manual verification recommended.",
+          "note": "Manual selector verification required if none found"
+        },
+        {
+          "type": "dns_bimi_missing",
+          "severity": "info",
+          "description": "BIMI record not found. Optional but recommended for brand identity."
+        }
+      ],
+      "reputation_stats": {},
+      "subdomains": [],
+      "subdomain_count": 0
+    }
+  ],
+  "findings": [
+    {
+      "target_ip": "45.33.32.156",
+      "finding_type": "default_ssh",
+      "severity": "high",
+      "source": "nmap",
+      "port": 22
+    },
+    {
+      "target_ip": "45.33.32.156",
+      "finding_type": "cleartext_http",
+      "severity": "critical",
+      "source": "nmap",
+      "port": 80
+    },
+    {
+      "target_ip": "45.33.32.156",
+      "finding_type": "dns_spf_missing",
+      "severity": "high",
+      "source": "dns_tool",
+      "description": "Missing SPF record! Domain is vulnerable to spoofing."
+    },
+    {
+      "target_ip": "45.33.32.156",
+      "finding_type": "dns_dmarc_missing",
+      "severity": "high",
+      "source": "dns_tool",
+      "description": "Missing DMARC record! High risk of unauthorized email usage."
+    },
+    {
+      "target_ip": "45.33.32.156",
+      "finding_type": "dns_dkim_not_found",
+      "severity": "medium",
+      "source": "dns_tool",
+      "description": "No common DKIM selectors discovered. Manual verification recommended."
+    },
+    {
+      "target_ip": "45.33.32.156",
+      "finding_type": "dns_bimi_missing",
+      "severity": "info",
+      "source": "dns_tool",
+      "description": "BIMI record not found. Optional but recommended for brand identity."
+    }
+  ],
+  "subdomains": [],
+  "subdomain_count": 0
+}
