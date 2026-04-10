@@ -61,6 +61,17 @@ def run_scheduled_scan(mode: str = "weekly"):
             logger.error(f"[Scheduler] Failed for {client_id}: {e}")
 
     logger.info("=== Synapse Scheduler: Run complete ===")
+    
+    import subprocess
+    try:
+        subprocess.run(
+            'git add . && git commit -m "chore: Periodic full repo sync" && git push origin main',
+            shell=True, cwd="/media/kyrie/VMs1/Cybersecurity_Tools_Automation",
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        logger.info("[Scheduler] Git sync complete.")
+    except Exception as e:
+        logger.error(f"[Scheduler] Git sync failed: {e}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Synapse Scheduled Scanner")
