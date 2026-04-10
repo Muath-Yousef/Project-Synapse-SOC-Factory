@@ -79,7 +79,7 @@ class ControlPlane:
         the existing ID and takes no further action (idempotency).
         """
         asset_id  = self._ensure_asset(client_id, asset_ip)
-        alert_id  = self._make_alert_id(client_id, asset_id, finding_type, severity)
+        alert_id  = self._make_alert_id(client_id, asset_id, finding_type, severity, raw_finding)
 
         if self._alert_exists(alert_id):
             logger.info(f"[CP] Duplicate suppressed: {alert_id[:10]}… ({finding_type}:{severity})")
@@ -272,14 +272,24 @@ class ControlPlane:
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA busy_timeout = 5000")
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    def _make_alert_id(self, client_id, asset_id, finding_type, severity) -> str:
-        key = f"{client_id}:{asset_id}:{finding_type}:{severity}:{date.today()}"
+    def _make_alert_id(self, client_id, asset_id, finding_type, severity, raw_finding) -> str:
+        now = datetime.now(timezone.utc)
+        if finding_type.startswith("dns_"):
+            bucket = now.strftime("%Y%m%d")
+            src = "dns"
+        else:
+            bucket = now.strftime("%Y%m%d%H")
+            src = raw_finding.get("srcip") or raw_finding.get("data", {}).get("srcip") or "unknown"
+            
+        key = f"{client_id}:{asset_id}:{finding_type}:{severity}:{bucket}:{src}"
         return hashlib.sha256(key.encode()).hexdigest()[:16]
 
     def _alert_exists(self, alert_id: str) -> bool:
@@ -319,7 +329,7 @@ class ControlPlane:
         # Check for an existing open incident for this asset+finding_type
         with self._conn() as conn:
             row = conn.execute(
-                """SELECT id FROM incidents
+                """SELECT id, severity FROM incidents
                    WHERE client_id=? AND asset_id=? AND finding_type_tag=?
                    AND state NOT IN ('closed','false_positive')
                    ORDER BY created_at DESC LIMIT 1""",
@@ -328,7 +338,13 @@ class ControlPlane:
 
         if row:
             incident_id = row["id"]
+            incident_sev = row["severity"]
             self._append_timeline(incident_id, "auto", f"Additional alert linked: {alert_id}")
+            
+            # Sub-feature: Incident severity escalation
+            sev_levels = {"info": 1, "low": 2, "medium": 3, "high": 4, "critical": 5}
+            if sev_levels.get(severity, 0) > sev_levels.get(incident_sev, 0):
+                self._escalate_incident_severity(incident_id, incident_sev, severity)
         else:
             incident_id = self._create_incident(client_id, asset_id, finding_type, severity)
             # GRC cross-link for high/critical
@@ -340,6 +356,15 @@ class ControlPlane:
                 )
 
         return incident_id
+
+    def _escalate_incident_severity(self, incident_id: str, old_sev: str, new_sev: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE incidents SET severity=?, updated_at=? WHERE id=?",
+                (new_sev, self._now(), incident_id)
+            )
+        self._append_timeline(incident_id, "auto", f"Severity escalated: {old_sev} → {new_sev}")
+        logger.info(f"[CP] Incident {incident_id} escalated {old_sev} → {new_sev}")
 
     def _create_incident(self, client_id, asset_id, finding_type, severity) -> str:
         # Generate sequential ID: INC-YYYYMMDD-NNNN
@@ -414,18 +439,30 @@ class ControlPlane:
                 )
             rule = {"weight": 1.0, "fp_count": 0, "tp_count": 0}
 
-        delta = FP_DELTA if direction == "down" else TP_DELTA
-        new_weight = round(max(0.0, min(MAX_WEIGHT, rule["weight"] + delta)), 3)
-
         fp_inc = 1 if direction == "down" else 0
         tp_inc = 1 if direction == "up"   else 0
+        
+        new_fp_count = rule["fp_count"] + fp_inc
+        new_tp_count = rule["tp_count"] + tp_inc
+        total = new_fp_count + new_tp_count
+
+        floor = 0.3 if severity == "critical" else 0.1
+
+        if total >= 20:
+            # Shift to fp_rate-based weight
+            # calc_weight = 1.0 + (tp_rate - fp_rate)
+            calc_weight = 1.0 + ((new_tp_count - new_fp_count) / total)
+            new_weight = round(max(floor, min(MAX_WEIGHT, calc_weight)), 3)
+        else:
+            delta = FP_DELTA if direction == "down" else TP_DELTA
+            new_weight = round(max(floor, min(MAX_WEIGHT, rule["weight"] + delta)), 3)
 
         with self._conn() as conn:
             conn.execute(
                 """UPDATE detection_rules
-                   SET weight=?, fp_count=fp_count+?, tp_count=tp_count+?, last_tuned=?
+                   SET weight=?, fp_count=?, tp_count=?, last_tuned=?
                    WHERE id=?""",
-                (new_weight, fp_inc, tp_inc, self._now(), rule_id)
+                (new_weight, new_fp_count, new_tp_count, self._now(), rule_id)
             )
 
         logger.info(f"[CP] Rule weight {rule_id}: {rule['weight']:.3f} → {new_weight:.3f} ({direction})")
