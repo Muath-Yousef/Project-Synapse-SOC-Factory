@@ -62,6 +62,19 @@ def run_scheduled_scan(mode: str = "weekly"):
 
     logger.info("=== Synapse Scheduler: Run complete ===")
     
+    # Phase 24: Weekly Rule Health Report
+    try:
+        from soc.control_plane import ControlPlane
+        cp = ControlPlane()
+        rules = cp.get_rule_health()
+        report_path = os.path.join(BASE_DIR, "reports/output", f"rule_health_{int(time.time())}.json")
+        os.makedirs(os.path.dirname(report_path), exist_ok=True)
+        with open(report_path, "w") as f:
+            json.dump(rules, f, indent=2)
+        logger.info(f"[Scheduler] Rule health report saved to {report_path}")
+    except Exception as e:
+        logger.error(f"[Scheduler] Failed to generate rule health report: {e}")
+    
     import subprocess
     try:
         subprocess.run(

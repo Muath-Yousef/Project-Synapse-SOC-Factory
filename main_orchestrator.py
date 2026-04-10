@@ -37,6 +37,7 @@ logger = logging.getLogger("Orchestrator")
 
 from soc.delta_analyzer import DeltaAnalyzer
 from soc.compliance_engine import ComplianceEngine
+from soc.control_plane import ControlPlane
 import time
 
 from tools.blacklist_tool import BlacklistTool
@@ -58,6 +59,7 @@ class Orchestrator:
         self.report_gen = ReportGenerator()
         self.delta_analyzer = DeltaAnalyzer()
         self.compliance_engine = ComplianceEngine()
+        self.control_plane = ControlPlane()
         self.history_dir = os.path.join(BASE_DIR, "knowledge/history")
         os.makedirs(self.history_dir, exist_ok=True)
 
@@ -132,7 +134,7 @@ class Orchestrator:
         logger.info("\n[STEP C] Running Historical Data Analytics...")
         old_scan = self._get_latest_scan(client_id)
         delta_findings = self.delta_analyzer.analyze(old_scan, final_json)
-        compliance_results = self.compliance_engine.calculate_score(final_json)
+        compliance_results = self.compliance_engine.calculate_score(final_json, client_id=client_id)
         
         # Step D: LLM Triage
         logger.info("\n[STEP D] AI Triage (Gemini 1.5)...")
@@ -164,6 +166,8 @@ class Orchestrator:
     def execute_soar_response(self, aggregated_findings: dict, client_profile: Dict[str, Any], bypass_safety: bool = False):
         """
         Processes findings from the Aggregator and routes them through the SOAR.
+        Phase 24: Every finding goes through ControlPlane for dedup + incident tracking
+        BEFORE any playbook fires.
         """
         client_name = client_profile.get("client_name", "unknown")
         # Handle whitelisted_ips inside security_profile if nested
@@ -180,6 +184,21 @@ class Orchestrator:
             severity  = finding.get("severity", "low")
             ftype     = finding.get("finding_type", "unknown")
 
+            # Phase 24: ControlPlane dedup — if duplicate, skip entirely
+            alert_id = self.control_plane.ingest_alert(
+                client_id=client_name,
+                asset_ip=target_ip or "0.0.0.0",
+                finding_type=ftype,
+                severity=severity,
+                source=finding.get("source", "scanner"),
+                raw_finding=finding
+            )
+            # ingest_alert returns existing ID for duplicates — check alert status
+            alert_record = self.control_plane._get_alert(alert_id)
+            if alert_record and alert_record["status"] in ("suppressed", "false_positive"):
+                logger.info(f"[SOAR] Alert {alert_id[:10]}… skipped (status={alert_record['status']})")
+                continue
+
             # Safety Check
             if bypass_safety:
                 logger.info(f"[SOAR] 🧪 TEST MODE ACTIVE: Bypassing SafetyGuard for {target_ip}")
@@ -191,9 +210,6 @@ class Orchestrator:
                 logger.warning(f"[Guard] Block PREVENTED for {target_ip}: {reason}")
                 log_action(client_name, "BLOCKED_BY_GUARD", target_ip, 
                            ftype, severity, DRY_RUN, {"reason": reason})
-                # Note: We continue if it's protected from blocking, 
-                # but we proceed with routing for ADVISORY actions.
-                # However, for this simplified Phase 7, we skip whitelisted IPs from ALL SOAR actions for now.
                 continue
 
             # Routing

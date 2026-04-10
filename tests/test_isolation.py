@@ -8,10 +8,17 @@ from pathlib import Path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from knowledge.vector_store import VectorStore, ClientProfileNotFoundError
+import pytest
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger("TestIsolation")
+
+@pytest.fixture(scope="module")
+def vs():
+    store = VectorStore(persist_dir=".chroma_db_test")
+    setup_test_data(store)
+    return store
 
 def setup_test_data(vs: VectorStore):
     """
