@@ -28,40 +28,18 @@ def test_soar_safety_cases():
     }
     
     # Case 1: External IP -> Should reach DRY_RUN
-    findings_external = {
-        "findings": [{
-            "target_ip": "1.2.3.4",
-            "finding_type": "cleartext_http",
-            "severity": "critical",
-            "source": "nmap"
-        }]
-    }
     print("\n[CASE 1] External IP (1.2.3.4) - Expected: dry_run")
-    orch.execute_soar_response(findings_external, client_profile)
+    orch.control_plane.ingest_alert("TechCo", "1.2.3.4", "cleartext_http", "critical", "nmap", {"target_ip": "1.2.3.4"})
 
     # Case 2: RFC1918 IP (Internal) -> Should be BLOCKED_BY_GUARD
-    findings_internal = {
-        "findings": [{
-            "target_ip": "192.168.1.50",
-            "finding_type": "cleartext_http",
-            "severity": "critical",
-            "source": "nmap"
-        }]
-    }
     print("\n[CASE 2] Internal RFC1918 IP (192.168.1.50) - Expected: blocked_by_guard")
-    orch.execute_soar_response(findings_internal, client_profile)
+    orch.control_plane.ingest_alert("TechCo", "192.168.1.50", "cleartext_http", "critical", "nmap", {"target_ip": "192.168.1.50"})
 
     # Case 3: Whitelisted IP (Client) -> Should be BLOCKED_BY_GUARD
-    findings_whitelisted = {
-        "findings": [{
-            "target_ip": "8.8.8.8",
-            "finding_type": "cleartext_http",
-            "severity": "critical",
-            "source": "nmap"
-        }]
-    }
     print("\n[CASE 3] Whitelisted IP (8.8.8.8) - Expected: blocked_by_guard")
-    orch.execute_soar_response(findings_whitelisted, client_profile)
+    with orch.control_plane._conn() as conn:
+        conn.execute("INSERT OR IGNORE INTO client_whitelist (client_id, ip, created_at) VALUES (?,?,?)", ("TechCo", "8.8.8.8", "timestamp"))
+    orch.control_plane.ingest_alert("TechCo", "8.8.8.8", "cleartext_http", "critical", "nmap", {"target_ip": "8.8.8.8"})
 
     print("\n" + "="*60)
     print("Check soc/audit/soar_actions.jsonl for exact log entries.")

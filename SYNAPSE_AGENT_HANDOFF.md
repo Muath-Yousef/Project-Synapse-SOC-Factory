@@ -246,9 +246,10 @@ NVD_API_KEY=your_key
 | 21 | Master E2E Validation — 8/8 passing | ✅ | 45b8e9e |
 | 22 | Fix: Router rules + GeoIP fallback + scheduler test + compliance score + BankCo billing | ✅ | 17816cc |
 | 23-prep | Ansible deployment + TheHive/Shuffle Docker Compose | ✅ | 189f1da |
-| 24 | Synapse Control Plane (Data Model, 56/56 tests passing) | ✅ | |
+| 24 | Synapse Control Plane (Data Model) | ✅ | |
+| 25 | Control Plane Hardening & SOAR Inline Execution | ✅ | |
 
-**Current State: 56/56 tests green. Code Freeze.**
+**Current State: 60/60 tests green. Control Plane handles atomic execution.**
 
 ---
 

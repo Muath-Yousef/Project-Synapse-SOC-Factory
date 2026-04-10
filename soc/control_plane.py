@@ -13,11 +13,16 @@ import hashlib
 import json
 import logging
 import sqlite3
+import os
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+from soc.alert_router import AlertRouter, AlertContext
+from soc.playbooks.base_playbook import ActionType
+from soc.safety_guard import SafetyGuard
 
 # ── Database path ──────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -108,6 +113,22 @@ class ControlPlane:
             client_id, asset_id, alert_id, finding_type, severity
         )
         self._update_alert_status(alert_id, "routed", incident_id)
+
+        # Build AlertContext for routing
+        alert_ctx = AlertContext(
+            client_id=client_id,
+            target_ip=asset_ip,
+            finding_type=finding_type,
+            severity=severity,
+            cve_id=raw_finding.get("vuln_id"),
+            source_tool=source,
+            raw_finding=raw_finding
+        )
+        
+        router = AlertRouter()
+        actions = router.route(alert_ctx)
+        
+        self._execute_actions(actions, alert_ctx, incident_id)
 
         return alert_id
 
@@ -264,6 +285,80 @@ class ControlPlane:
                 "SELECT id, finding_type, severity, weight, fp_count, tp_count, last_tuned FROM detection_rules ORDER BY weight ASC"
             ).fetchall()
         return [dict(zip(["id","finding_type","severity","weight","fp_count","tp_count","last_tuned"], r)) for r in rows]
+
+    def _is_dry_run(self) -> bool:
+        return os.getenv("SOAR_DRY_RUN", "true").lower() == "true"
+
+    def _get_client_whitelist(self, client_id: str) -> List[str]:
+        with self._conn() as conn:
+            rows = conn.execute("SELECT ip FROM client_whitelist WHERE client_id=?", (client_id,)).fetchall()
+        return [r["ip"] for r in rows]
+
+    def _execute_actions(self, actions: List[ActionType], ctx: AlertContext, incident_id: str) -> None:
+        action_map = {
+            ActionType.BLOCK_IP: self._handle_block_ip,
+            ActionType.NOTIFY_ONLY: self._handle_notify,
+            ActionType.PATCH_ADVISORY: self._handle_patch,
+            ActionType.ESCALATE_HUMAN: self._handle_escalation,
+        }
+        for action in actions:
+            handler = action_map.get(action)
+            if not handler:
+                continue
+            try:
+                handler(ctx, incident_id)
+            except Exception as e:
+                self._append_timeline(incident_id, "SOAR", f"{action.name} FAILED: {str(e)}")
+                logger.error(f"[CP-Execution] {action.name} failed for {ctx.client_id}: {e}")
+
+    def _handle_block_ip(self, ctx: AlertContext, incident_id: str):
+        from soc.playbooks.web_attack_playbook import WebAttackPlaybook
+        
+        whitelist = self._get_client_whitelist(ctx.client_id)
+        guard = SafetyGuard(client_whitelist=whitelist)
+        safe, reason = guard.is_safe_to_block(ctx.target_ip)
+        
+        if not safe:
+            self._append_timeline(incident_id, "SOAR", f"BLOCK_SKIPPED: {reason}")
+            return
+            
+        dry_run = self._is_dry_run()
+        if dry_run:
+            self._append_timeline(incident_id, "SOAR", f"DRY_RUN: would block {ctx.target_ip}")
+            
+        playbook = WebAttackPlaybook()
+        result = playbook.execute(ctx, dry_run=dry_run)
+        self._append_timeline(incident_id, "SOAR", f"BLOCK_IP executed: {result.get('status')}")
+
+    def _handle_notify(self, ctx: AlertContext, incident_id: str):
+        from soc.playbooks.hardening_playbook import HardeningPlaybook
+        playbook = HardeningPlaybook()
+        result = playbook.execute(ctx, dry_run=self._is_dry_run())
+        self._append_timeline(incident_id, "SOAR", f"NOTIFY executed: {result.get('status')}")
+
+    def _handle_patch(self, ctx: AlertContext, incident_id: str):
+        from soc.playbooks.hardening_playbook import HardeningPlaybook
+        playbook = HardeningPlaybook()
+        result = playbook.execute(ctx, dry_run=self._is_dry_run())
+        self._append_timeline(incident_id, "SOAR", f"PATCH_ADVISORY executed: {result.get('status')}")
+
+    def _handle_escalation(self, ctx: AlertContext, incident_id: str):
+        # Specific escalations based on finding type if applicable
+        if ctx.finding_type == "malware":
+            from soc.playbooks.malware_playbook import MalwarePlaybook
+            playbook = MalwarePlaybook()
+        elif ctx.finding_type == "data_exfiltration":
+            from soc.playbooks.data_exfil_playbook import DataExfilPlaybook
+            playbook = DataExfilPlaybook()
+        elif ctx.finding_type == "ransomware_precursor":
+            from soc.playbooks.ransomware_playbook import RansomwarePlaybook
+            playbook = RansomwarePlaybook()
+        else:
+            from soc.playbooks.web_attack_playbook import WebAttackPlaybook
+            playbook = WebAttackPlaybook()
+            
+        result = playbook.execute(ctx, dry_run=self._is_dry_run())
+        self._append_timeline(incident_id, "SOAR", f"ESCALATE_HUMAN executed: {result.get('status')}")
 
     # ═══════════════════════════════════════════════════════════════════════════
     # PRIVATE HELPERS
@@ -575,9 +670,18 @@ class ControlPlane:
                     created_at  TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS client_whitelist (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id   TEXT NOT NULL,
+                    ip          TEXT NOT NULL,
+                    description TEXT,
+                    created_at  TEXT NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_alerts_client    ON alerts(client_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_incidents_client ON incidents(client_id, state);
                 CREATE INDEX IF NOT EXISTS idx_assets_client    ON assets(client_id);
+                CREATE INDEX IF NOT EXISTS idx_whitelist_client ON client_whitelist(client_id);
             """)
         logger.info(f"[CP] Database ready: {self.db_path}")
 

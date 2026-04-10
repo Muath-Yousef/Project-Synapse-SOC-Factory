@@ -21,14 +21,7 @@ from core.llm_manager import LLMManager
 from reports.report_generator import ReportGenerator
 import yaml
 
-# Phase 7: SOAR Integration
-from soc.safety_guard import SafetyGuard
-from soc.alert_router import AlertRouter, AlertContext, ActionType
-from soc.playbooks.web_attack_playbook import WebAttackPlaybook
-from soc.playbooks.hardening_playbook import HardeningPlaybook
-from soc.playbooks.malware_playbook import MalwarePlaybook
-from soc.playbooks.data_exfil_playbook import DataExfilPlaybook
-from soc.playbooks.ransomware_playbook import RansomwarePlaybook
+# Phase 24: Orchestrator routes via ControlPlane inline
 from soc.audit_log import log_action
 
 DRY_RUN = os.getenv("SOAR_DRY_RUN", "true").lower() == "true"
@@ -155,96 +148,22 @@ class Orchestrator:
         
         # Step F: Persistence & SOAR
         self._persist_scan(client_id, final_json)
-        logger.info("\n[STEP F] Executing SOAR Responses...")
+        logger.info("\n[STEP F] Delegating SOAR to Control Plane...")
         try:
-            self.execute_soar_response(final_json, client_profile, bypass_safety=kwargs.get("test_mode", False))
+            client_name = client_profile.get("client_name", "unknown")
+            for finding in final_json.get("findings", []):
+                self.control_plane.ingest_alert(
+                    client_id=client_name,
+                    asset_ip=finding.get("target_ip") or target_ip,
+                    finding_type=finding.get("finding_type", "unknown"),
+                    severity=finding.get("severity", "low"),
+                    source=finding.get("source", "scanner"),
+                    raw_finding=finding
+                )
         except Exception as e:
-            logger.error(f"SOAR failed: {e}")
+            logger.error(f"SOAR delegate failed: {e}")
 
         return report_path
-
-    def execute_soar_response(self, aggregated_findings: dict, client_profile: Dict[str, Any], bypass_safety: bool = False):
-        """
-        Processes findings from the Aggregator and routes them through the SOAR.
-        Phase 24: Every finding goes through ControlPlane for dedup + incident tracking
-        BEFORE any playbook fires.
-        """
-        client_name = client_profile.get("client_name", "unknown")
-        # Handle whitelisted_ips inside security_profile if nested
-        security = client_profile.get("security_profile", {})
-        whitelist = security.get("whitelisted_ips", [])
-        
-        guard    = SafetyGuard(client_whitelist=whitelist)
-        router   = AlertRouter()
-        web_playbook = WebAttackPlaybook()
-        hard_playbook = HardeningPlaybook()
-
-        for finding in aggregated_findings.get("findings", []):
-            target_ip = finding.get("target_ip")
-            severity  = finding.get("severity", "low")
-            ftype     = finding.get("finding_type", "unknown")
-
-            # Phase 24: ControlPlane dedup — if duplicate, skip entirely
-            alert_id = self.control_plane.ingest_alert(
-                client_id=client_name,
-                asset_ip=target_ip or "0.0.0.0",
-                finding_type=ftype,
-                severity=severity,
-                source=finding.get("source", "scanner"),
-                raw_finding=finding
-            )
-            # ingest_alert returns existing ID for duplicates — check alert status
-            alert_record = self.control_plane._get_alert(alert_id)
-            if alert_record and alert_record["status"] in ("suppressed", "false_positive"):
-                logger.info(f"[SOAR] Alert {alert_id[:10]}… skipped (status={alert_record['status']})")
-                continue
-
-            # Safety Check
-            if bypass_safety:
-                logger.info(f"[SOAR] 🧪 TEST MODE ACTIVE: Bypassing SafetyGuard for {target_ip}")
-                safe, reason = True, "Bypassed via --test-mode"
-            else:
-                safe, reason = guard.is_safe_to_block(target_ip)
-
-            if not safe:
-                logger.warning(f"[Guard] Block PREVENTED for {target_ip}: {reason}")
-                log_action(client_name, "BLOCKED_BY_GUARD", target_ip, 
-                           ftype, severity, DRY_RUN, {"reason": reason})
-                continue
-
-            # Routing
-            alert = AlertContext(
-                client_id=client_name,
-                target_ip=target_ip,
-                finding_type=ftype,
-                severity=severity,
-                cve_id=finding.get("vuln_id"),
-                source_tool=finding.get("source"),
-                raw_finding=finding
-            )
-            actions = router.route(alert)
-
-            # Processing actions
-            for action in actions:
-                if action == ActionType.BLOCK_IP:
-                    result = web_playbook.execute(alert, dry_run=DRY_RUN)
-                    log_action(client_name, "BLOCK_IP", target_ip, ftype, severity, DRY_RUN, result)
-                
-                elif action == ActionType.PATCH_ADVISORY or ftype == "default_ssh":
-                    result = hard_playbook.execute(alert, dry_run=DRY_RUN)
-                    log_action(client_name, "HARDENING_ADVISORY", target_ip, ftype, severity, DRY_RUN, result)
-
-                elif ftype in ["malware"]:
-                    result = MalwarePlaybook().execute(alert, dry_run=DRY_RUN)
-                    log_action(client_name, "MALWARE_ESCALATION", target_ip, ftype, severity, DRY_RUN, result)
-                
-                elif ftype in ["data_exfiltration"]:
-                    result = DataExfilPlaybook().execute(alert, dry_run=DRY_RUN)
-                    log_action(client_name, "DATA_EXFIL_RESPONSE", target_ip, ftype, severity, DRY_RUN, result)
-                
-                elif ftype in ["ransomware_precursor"]:
-                    result = RansomwarePlaybook().execute(alert, dry_run=DRY_RUN)
-                    log_action(client_name, "P0_RANSOMWARE", target_ip, ftype, severity, DRY_RUN, result)
 
 if __name__ == "__main__":
     import argparse
