@@ -1,0 +1,22 @@
+[Unit]
+Description=Synapse Security Scheduler
+Documentation=https://github.com/Muath-Yousef/Project-Synapse-SOC-Factory
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/synapse
+ExecStart=/opt/synapse/venv/bin/python3 /opt/synapse/scheduler.py --mode weekly
+Restart=always
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=synapse-scheduler
+Environment=PYTHONUNBUFFERED=1
+
+# Weekly via cron-like: systemd timer handles the interval
+# See: synapse-scheduler.timer
+
+[Install]
+WantedBy=multi-user.target

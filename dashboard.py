@@ -14,9 +14,14 @@ load_dotenv()
 def load_clients():
     clients = []
     for f in Path("knowledge/client_profiles").glob("*.yaml"):
+        if f.name.startswith("_"):
+            continue  # skip templates
         with open(f) as fp:
             data = yaml.safe_load(fp)
             if data and "client_name" in data:
+                # Skip template placeholder values
+                if str(data.get("client_name", "")).startswith("["):
+                    continue
                 clients.append(data)
     return clients
 
@@ -49,26 +54,19 @@ def get_latest_report(client_id):
     return "No reports yet"
 
 def get_revenue_summary(clients):
-    """Calculate MRR and contract status from client profiles."""
-    mrr = 0
-    active = 0
-    expiring_soon = 0
-    for c in clients:
-        fee = c.get("monthly_fee", 0)
-        if isinstance(fee, (int, float)) and fee > 0:
-            mrr += fee
-            active += 1
-        # Check contract expiry
-        end = c.get("contract_end")
-        if end:
-            try:
-                end_dt = datetime.fromisoformat(str(end))
-                days_left = (end_dt - datetime.now()).days
-                if 0 < days_left <= 30:
-                    expiring_soon += 1
-            except Exception:
-                pass
-    return {"mrr": mrr, "active_paying": active, "expiring_soon": expiring_soon}
+    """Phase 30.3: Delegate to ContractManager for accurate billing data."""
+    try:
+        from onboarding.contract_manager import ContractManager
+        cm = ContractManager()
+        return cm.get_summary()
+    except Exception:
+        # Fallback: basic count from profile data
+        mrr = sum(
+            (c.get("billing") or {}).get("monthly_fee", 0) or 0
+            for c in clients
+        )
+        return {"mrr": mrr, "active_paying": sum(1 for c in clients if (c.get("billing") or {}).get("monthly_fee", 0)),
+                "pilots": 0, "overdue_invoices": 0, "expiring_soon": []}
 
 def check_gemini_health():
     """Phase 29.3: API health check for dashboard."""
@@ -122,10 +120,13 @@ def print_dashboard():
     rev = get_revenue_summary(clients)
     print(f"\n  {'─' * 30} REVENUE {'─' * 32}")
     print(f"  📊 Registered Clients : {len(clients)}")
-    print(f"  💰 Paying Clients     : {rev['active_paying']}")
-    print(f"  💵 MRR                : JOD {rev['mrr']:,.0f}")
-    if rev['expiring_soon']:
-        print(f"  ⚠️  Expiring (30 days) : {rev['expiring_soon']}")
+    print(f"  💰 Paying Clients     : {rev.get('active_paying', 0)}")
+    print(f"  🔵 Pilots/Demo        : {rev.get('pilots', 0)}")
+    print(f"  💵 MRR                : JOD {rev.get('mrr', 0):,.0f}")
+    if rev.get('overdue_invoices', 0):
+        print(f"  🔴 Overdue Invoices   : {rev['overdue_invoices']}")
+    for exp in rev.get('expiring_soon', []):
+        print(f"  ⚠️  Expiring           : {exp['client']} — {exp['days_left']} days left")
 
     # ── Clients ──
     if not clients:

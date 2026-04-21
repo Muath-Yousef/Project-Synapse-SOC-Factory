@@ -1,0 +1,69 @@
+# Synapse Client Profile — Phase 30.2 Standard Schema
+# Copy this file to knowledge/client_profiles/{client_id}.yaml
+# Required fields are marked with [REQUIRED]
+
+# ─── Identity ────────────────────────────────────────────────────────────────
+client_id: [REQUIRED]          # unique slug, lowercase, no spaces (e.g. asasedu)
+client_name: [REQUIRED]        # Display name (e.g. "Asas Educational Platform")
+industry: [REQUIRED]           # Technology | Finance | Healthcare | Education | Retail | Other
+country: JO                    # JO | AE | SA | ...
+
+# ─── Service ─────────────────────────────────────────────────────────────────
+service_tier: soc_standard     # soc_lite | soc_standard | soc_pro | soc_grc
+scan_frequency: weekly         # weekly | monthly (overrides tier default)
+
+# ─── Targets ─────────────────────────────────────────────────────────────────
+primary_target: [REQUIRED]     # domain or IP (e.g. asas4edu.net)
+targets:
+  - domain: [REQUIRED]
+  # - ip: 1.2.3.4             # additional IPs if applicable
+  # - domain: sub.example.com
+
+# ─── Contacts ────────────────────────────────────────────────────────────────
+contact_email: [REQUIRED]      # primary technical/IT contact
+billing_email:                 # finance contact (defaults to contact_email)
+contact_name:                  # human-readable name
+contact_phone:                 # +962-xxx for Jordan, +971-xxx for UAE
+
+# ─── Billing ─────────────────────────────────────────────────────────────────
+billing:
+  monthly_fee: 0               # JOD amount (0 = pilot/demo)
+  currency: JOD
+  payment_status: pending      # pending | paid | overdue
+  contract_start:              # ISO date: 2026-04-20
+  contract_end:                # ISO date: 2027-04-20
+  invoice_cycle: monthly       # monthly | annual
+
+# ─── Notifications ───────────────────────────────────────────────────────────
+notification_channels:
+  telegram: true
+  email: true
+
+# ─── Compliance ──────────────────────────────────────────────────────────────
+compliance_frameworks:
+  - NCA_ECC_2.0
+  # - ISO_27001
+  # - UAE_PDPL
+  # - ADHICS
+
+# ─── Security Config ─────────────────────────────────────────────────────────
+whitelisted_ips: []            # IPs SafetyGuard will never block
+security_profile:
+  risk_tolerance: low          # low | medium | high
+log_cap_gb_day: 10
+
+# ─── Tech Stack ──────────────────────────────────────────────────────────────
+tech_stack_keywords:
+  - Nginx
+  # - Apache
+  # - WordPress
+  # - Node.js
+  # - Python
+  # - MySQL
+infrastructure:
+  web_server: []
+  os: []
+  platform: []
+
+# ─── Notes ───────────────────────────────────────────────────────────────────
+notes: ""   # Any client-specific context for AI triage

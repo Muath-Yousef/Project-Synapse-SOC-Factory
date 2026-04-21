@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Synapse weekly scan
+Requires=synapse-scheduler.service
+
+[Timer]
+# Every Sunday at 02:00 UTC
+OnCalendar=Sun *-*-* 02:00:00
+Persistent=true
+Unit=synapse-scheduler.service
+
+[Install]
+WantedBy=timers.target
