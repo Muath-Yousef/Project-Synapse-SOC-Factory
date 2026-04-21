@@ -19,6 +19,8 @@ from parsers.aggregator import Aggregator
 from knowledge.vector_store import VectorStore, ClientProfileNotFoundError
 from core.llm_manager import LLMManager
 from reports.report_generator import ReportGenerator
+from reports.client_report_generator import ClientReportGenerator
+from soc.connectors.email_connector import EmailConnector
 import yaml
 
 # Phase 24: Orchestrator routes via ControlPlane inline
@@ -50,6 +52,8 @@ class Orchestrator:
         self.aggregator = Aggregator()
         self.llm = LLMManager()
         self.report_gen = ReportGenerator()
+        self.client_report_gen = ClientReportGenerator()
+        self.email = EmailConnector()
         self.delta_analyzer = DeltaAnalyzer()
         self.compliance_engine = ComplianceEngine()
         self.control_plane = ControlPlane()
@@ -134,18 +138,90 @@ class Orchestrator:
         triage_report = self.llm.analyze_scan(final_json, client_context)
 
         # Step E: Reports (with Analytics)
-        logger.info("\n[STEP E] Generating Analytical Security Report...")
-        md_content = self.report_gen.generate_markdown_report(
-            target_ip=target_ip,
-            client_id=client_id,
-            client_context=client_context,
-            scan_data=final_json,
-            triage_verdict=triage_report,
-            delta_findings=delta_findings,
-            compliance_results=compliance_results
-        )
-        report_path = self.report_gen.save_report(md_content, f"{client_id.lower()}_report.md")
-        
+        report_type = kwargs.get("report_type", "both")
+        date_str = time.strftime("%Y-%m")
+        client_slug = client_id.lower()
+        generated = []
+
+        if report_type in ("internal", "both"):
+            logger.info("\n[STEP E.1] Generating Internal SOC Report...")
+            md_content = self.report_gen.generate_markdown_report(
+                target_ip=target_ip,
+                client_id=client_id,
+                client_context=client_context,
+                scan_data=final_json,
+                triage_verdict=triage_report,
+                delta_findings=delta_findings,
+                compliance_results=compliance_results
+            )
+            internal_md = f"{client_slug}_internal_{date_str}.md"
+            report_path = self.report_gen.save_report(md_content, internal_md)
+            generated.append(("internal", report_path))
+            logger.info(f"[STEP E.1] Internal report: {report_path}")
+            # Also generate internal PDF
+            try:
+                internal_pdf_name = f"{client_slug}_internal_{date_str}.pdf"
+                self.report_gen.generate_pdf_report(
+                    target_ip=target_ip,
+                    client_id=client_id,
+                    client_full_name=client_profile.get("client_name", client_id),
+                    score_data=compliance_results,
+                    scan_data=final_json,
+                    filename=internal_pdf_name,
+                    classification="INTERNAL",
+                    ai_triage=triage_report
+                )
+                logger.info(f"[STEP E.1] Internal PDF: {internal_pdf_name}")
+            except Exception as e:
+                logger.error(f"[STEP E.1] Internal PDF generation failed: {e}")
+
+        if report_type in ("executive", "both"):
+            logger.info("\n[STEP E.2] Generating Executive Client Report...")
+            try:
+                exec_pdf_name = f"{client_slug}_executive_{date_str}.pdf"
+                output_dir = os.path.join(BASE_DIR, "reports", "output")
+                exec_path = os.path.join(output_dir, exec_pdf_name)
+                scan_path_for_exec = os.path.join(self.history_dir, f"{client_slug}_scan_{int(time.time())}.json")
+                # Use the already-persisted scan or write temp
+                history_files = sorted([f for f in os.listdir(self.history_dir) if f.startswith(f"{client_slug}_scan_")])
+                if history_files:
+                    scan_path_for_exec = os.path.join(self.history_dir, history_files[-1])
+                else:
+                    with open(scan_path_for_exec, 'w') as f:
+                        json.dump(final_json, f, indent=2)
+
+                self.client_report_gen.generate(
+                    scan_path=scan_path_for_exec,
+                    client_name=client_profile.get("client_name", client_id),
+                    domain=target_ip,
+                    output_path=exec_path,
+                )
+                generated.append(("executive", exec_path))
+                logger.info(f"[STEP E.2] Executive PDF: {exec_path}")
+            except Exception as e:
+                logger.error(f"[STEP E.2] Executive report generation failed: {e}")
+
+        # Step E.3: Email delivery
+        client_email = client_profile.get("contact_email")
+        soc_email = os.getenv("SOC_INBOX", "")
+        for rtype, rpath in generated:
+            if rtype == "executive" and client_email:
+                self.email.send_report(
+                    to=client_email,
+                    subject=f"Security Assessment Report — {client_profile.get('client_name', client_id)}",
+                    body="Please find your security assessment report attached.",
+                    attachment_path=rpath
+                )
+            elif rtype == "internal" and soc_email:
+                self.email.send_report(
+                    to=soc_email,
+                    subject=f"[SOC] Internal Report — {client_id}",
+                    body="Internal SOC report attached.",
+                    attachment_path=rpath
+                )
+
+        report_path = generated[0][1] if generated else "No reports generated"
+
         # Step F: Persistence & SOAR
         self._persist_scan(client_id, final_json)
         logger.info("\n[STEP F] Delegating SOAR to Control Plane...")
@@ -170,7 +246,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Synapse Orchestrator - Automated MSSP Triage")
     parser.add_argument("--target", required=True, help="Target IP or Hostname to scan")
     parser.add_argument("--client", required=True, help="Client ID for context retrieval")
-    parser.add_argument("--test-mode", action="store_true", help="Bypass SafetyGuard for local verification (WARNING: Never use in production)")
+    parser.add_argument("--report-type", choices=["internal", "executive", "both"], default="both",
+                        help="Report type: internal (SOC), executive (client), or both (default)")
+    parser.add_argument("--test-mode", action="store_true", help="Bypass SafetyGuard for local verification")
     
     args = parser.parse_args()
     
@@ -179,8 +257,11 @@ if __name__ == "__main__":
     
     orchestrator = Orchestrator()
     try:
-        # Pass test_mode to run_triage which passes it down to SOAR
-        report_path = orchestrator.run_triage(args.target, args.client, test_mode=args.test_mode)
+        report_path = orchestrator.run_triage(
+            args.target, args.client,
+            test_mode=args.test_mode,
+            report_type=args.report_type
+        )
         print(f"\n✅ Triage Complete. Report saved to: {report_path}")
     except Exception as e:
         print(f"\n❌ Orchestration Failed: {e}")

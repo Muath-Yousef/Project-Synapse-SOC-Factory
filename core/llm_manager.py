@@ -1,6 +1,8 @@
 import logging
 import os
 import json
+import time
+from datetime import datetime
 from typing import Dict, Any
 from dotenv import load_dotenv
 from core.rate_limiter import RateLimiter
@@ -16,36 +18,107 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 class LLMManager:
     """
-    Manages interactions with LLM APIs (Gemini, OpenAI, Claude).
-    Using Gemini-1.5-flash parameter as primary via modern google.genai,
-    with a graceful mock fallback.
+    Manages interactions with LLM APIs (Gemini).
+    Model priority per SYNAPSE_MASTER_ROADMAP Phase 29.3:
+      Primary:   gemini-2.0-flash (stable, free tier)
+      Fallback1: gemini-1.5-flash
+      Fallback2: Structured offline analysis (clearly labeled)
     """
+
+    MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
+
     def __init__(self, provider="gemini"):
         self.provider = provider
         load_dotenv()
-        
         self.api_key = os.getenv("GEMINI_API_KEY")
-        
+        self.last_health = None  # for dashboard health check
+
         if self.api_key and self.api_key != "your_gemini_key_here" and GENAI_AVAILABLE:
             self.client = genai.Client(api_key=self.api_key)
-            self.model_name = 'gemini-2.5-flash'
             self.live_mode = True
         else:
             self.live_mode = False
 
+    # ------------------------------------------------------------------
+    # Health check (Phase 29.3 — exposed to dashboard.py)
+    # ------------------------------------------------------------------
+    def health_check(self) -> Dict[str, Any]:
+        """Quick non-destructive API health check."""
+        result = {"timestamp": datetime.now().isoformat(), "live_mode": self.live_mode}
+        if not self.live_mode:
+            result["status"] = "offline"
+            result["reason"] = "No API key or google-genai not installed"
+            self.last_health = result
+            return result
+
+        for model in self.MODELS:
+            try:
+                resp = self.client.models.generate_content(
+                    model=model, contents="Reply with exactly: OK"
+                )
+                result["status"] = "online"
+                result["model"] = model
+                result["response"] = resp.text.strip()[:20]
+                self.last_health = result
+                return result
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "503" in err_str:
+                    continue
+                result["status"] = "error"
+                result["error"] = err_str[:120]
+                self.last_health = result
+                return result
+
+        result["status"] = "rate_limited"
+        result["reason"] = "All models returned 429/503"
+        self.last_health = result
+        return result
+
+    # ------------------------------------------------------------------
+    # Main analysis
+    # ------------------------------------------------------------------
     @_limiter
     def analyze_scan(self, scan_json: Dict[str, Any], client_context: str) -> str:
         """
         Takes standardized JSON and RAG Context to produce an intelligent Triage Report.
+        Never returns empty — always returns structured output.
         """
         logger.info(f"[LLMManager] Analyzing scan... (Live Mode: {self.live_mode})")
-        
+
         if self.live_mode:
-            try:
-                prompt = f"""
-You are a hostile security reviewer, not a compliance checker.
+            prompt = self._build_prompt(scan_json, client_context)
+            for model_name in self.MODELS:
+                logger.info(f"[LLMManager] Trying model: {model_name}")
+                for attempt in range(3):
+                    try:
+                        response = self.client.models.generate_content(
+                            model=model_name, contents=prompt,
+                        )
+                        logger.info(f"[LLMManager] Success with {model_name} on attempt {attempt+1}")
+                        return response.text
+                    except Exception as e:
+                        err = str(e)
+                        logger.error(f"[LLMManager] {model_name} attempt {attempt+1}/3: {err[:100]}")
+                        if "429" in err or "503" in err:
+                            wait = 15 * (attempt + 1)  # 15s, 30s, 45s
+                            logger.info(f"[LLMManager] Rate limited — waiting {wait}s")
+                            time.sleep(wait)
+                        else:
+                            break  # non-rate error, try next model
+            logger.error("[LLMManager] All models/retries exhausted. Using Offline Analysis.")
+
+        # ── Structured Offline Analysis (never empty, clearly labeled) ──
+        return self._offline_analysis(scan_json, client_context)
+
+    # ------------------------------------------------------------------
+    # Prompt builder
+    # ------------------------------------------------------------------
+    def _build_prompt(self, scan_json: Dict[str, Any], client_context: str) -> str:
+        return f"""You are a hostile security reviewer, not a compliance checker.
 Your job is to assume a threat actor perspective.
 
 Rules:
@@ -72,32 +145,52 @@ Client Context (RAG Data):
 {client_context}
 
 Scan Results (JSON Format):
-{json.dumps(scan_json, indent=2)}
-                """
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                )
-                return response.text
-            except Exception as e:
-                logger.error(f"[LLMManager] Exception calling Gemini API: {e}. Falling back to MOCK.")
-        
-        # Fallback Mock Logic
+{json.dumps(scan_json, indent=2)}"""
+
+    # ------------------------------------------------------------------
+    # Offline analysis (structured, never empty, clearly labeled)
+    # ------------------------------------------------------------------
+    def _offline_analysis(self, scan_json: Dict[str, Any], client_context: str) -> str:
+        """Deterministic analysis when API is unavailable. Clearly labeled."""
         targets = scan_json.get("targets", [])
+        findings = scan_json.get("findings", [])
         ip = targets[0].get("ip", "Unknown") if targets else "Unknown"
-        ports = len(targets[0].get("open_ports", [])) if targets else 0
-        
-        has_nginx = "Nginx" in client_context if client_context else False
-        
-        report = f"""
-💡 [MOCK RAG ANALYSIS REPORT]
-Target Investigated: {ip}
-Open Ports Detected: {ports}
+        ports = targets[0].get("open_ports", []) if targets else []
 
-Context Applied:
-- Expected Web Server: {'Nginx (matches finding)' if has_nginx else 'Unknown'}
+        sections = ["[OFFLINE ANALYSIS — AI API unavailable at time of scan]\n"]
 
-Triage Verdict:
-No critical anomalies detected based on the provided context. (Mock Fallback triggered due to missing API key or error. Open ports align with standard basic operations).
-"""
-        return report.strip()
+        # Classify findings by severity
+        critical = [f for f in findings if f.get("severity", "").lower() == "critical"]
+        high = [f for f in findings if f.get("severity", "").lower() == "high"]
+        medium = [f for f in findings if f.get("severity", "").lower() == "medium"]
+
+        if critical:
+            sections.append("CRITICAL FINDINGS:")
+            for f in critical:
+                ft = f.get("finding_type", "unknown").replace("_", " ").title()
+                sections.append(f"  - {ft}: Requires immediate remediation. "
+                                f"Target: {f.get('target_ip', ip)}")
+
+        if high:
+            sections.append("\nHIGH FINDINGS:")
+            for f in high:
+                ft = f.get("finding_type", "unknown").replace("_", " ").title()
+                sections.append(f"  - {ft}: Should be addressed within 7 days. "
+                                f"Target: {f.get('target_ip', ip)}")
+
+        if medium:
+            sections.append("\nMEDIUM FINDINGS:")
+            for f in medium:
+                ft = f.get("finding_type", "unknown").replace("_", " ").title()
+                sections.append(f"  - {ft}: Recommended for next maintenance window.")
+
+        if not findings:
+            sections.append("No findings detected in this scan cycle.")
+
+        sections.append(f"\nTotal open ports: {len(ports)}")
+        sections.append(f"Total findings: {len(findings)} "
+                        f"(Critical: {len(critical)}, High: {len(high)}, Medium: {len(medium)})")
+        sections.append("\nNote: This analysis was generated offline. "
+                        "A full AI-powered triage will be performed when API quota is restored.")
+
+        return "\n".join(sections)

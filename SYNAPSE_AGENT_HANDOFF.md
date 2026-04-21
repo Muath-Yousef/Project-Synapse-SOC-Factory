@@ -1,6 +1,6 @@
 # Project Synapse SOC Factory — Agent Handoff Document
 > **Purpose:** This document enables any AI agent to continue development of Project Synapse exactly where it was left off. Read every section before taking any action.
-> **Last Updated:** 2026-04-09 — Phase 22 Complete + Deployment Infrastructure Ready
+> **Last Updated:** 2026-04-21 — Phase 29 Complete (Revenue Foundation)
 
 ---
 
@@ -13,7 +13,7 @@
 | **Local Path** | `/media/kyrie/VMs1/Cybersecurity_Tools_Automation` |
 | **Git Branch** | `main` |
 | **Git Author** | `Kyrie Security Architect <kyrie@synapse.soc>` |
-| **Last Phase** | **Phase 24 Complete** — Synapse Control Plane |
+| **Last Phase** | **Phase 29 Complete** — Revenue Foundation (API stability, report pipeline, Telegram logging) |
 | **Python Env** | `venv` at project root — always activate: `source venv/bin/activate` |
 
 ---
@@ -24,7 +24,7 @@
 - **Business Model:** Annual contracts — protection of websites, servers, DDoS mitigation
 - **Market:** Jordan + UAE (CyberShield MSSP Blueprint)
 - **Current Phase:** Code Freeze locally — awaiting first client to trigger Hetzner provisioning
-- **AI Budget:** Gemini 2.5 Flash (free tier, 15 RPM) as primary LLM. Willing to upgrade APIs when needed
+- **AI Budget:** Gemini 2.0 Flash (free tier, 15 RPM) as primary. Fallback: gemini-2.0-flash-lite. Offline analysis if both exhausted.
 - **Tools Preference:** Free-first → upgrade to paid only when operationally necessary
 
 ---
@@ -44,7 +44,7 @@ Every component is modular, inherits from a base class, and communicates via sta
 ```
 /media/kyrie/VMs1/Cybersecurity_Tools_Automation/
 │
-├── main_orchestrator.py          # Central brain — CLI entry: --target --client --test-mode
+├── main_orchestrator.py          # Central brain — CLI: --target --client --report-type [internal|executive|both] --test-mode
 ├── scheduler.py                  # Automated weekly/monthly scans for all clients
 ├── dashboard.py                  # CLI SOC status view
 │
@@ -88,7 +88,7 @@ Every component is modular, inherits from a base class, and communicates via sta
 │   ├── audit_log.py
 │   ├── delta_analyzer.py
 │   ├── compliance_engine.py      # Score 0-100 + Grade A-F (0/100 on unprotected = correct)
-│   ├── webhook_server.py         # Receives Wazuh alerts — untested with live SIEM
+│   ├── webhook_server.py         # Receives Wazuh alerts — LIVE & VERIFIED ✅
 │   │
 │   ├── playbooks/
 │   │   ├── base_playbook.py
@@ -245,7 +245,10 @@ NVD_API_KEY=your_key
 | 20 | Blacklist RBL + Contract Manager + Billing Metadata | ✅ | 2606451 |
 | 21 | Master E2E Validation — 8/8 passing | ✅ | 45b8e9e |
 | 22 | Fix: Router rules + GeoIP fallback + scheduler test + compliance score + BankCo billing | ✅ | 17816cc |
-| 23-prep | Ansible deployment + TheHive/Shuffle Docker Compose | ✅ | 189f1da |
+| 23 | Production Deployment — Wazuh webhook LIVE on Contabo VPS | ✅ | 189f1da |
+| 27 | Production Hardening & Formal Handover | ✅ | CURRENT |
+| 28 | First Real Client Scan — AsasEdu | ✅ | [Latest] |
+| 29 | Pipeline Scale & Delta Refinement | 🔄 | NEXT |
 | 24 | Synapse Control Plane (Data Model) | ✅ | |
 | 25 | Control Plane Hardening & SOAR Inline Execution | ✅ | |
 
@@ -257,12 +260,9 @@ NVD_API_KEY=your_key
 
 | Item | Priority | Status |
 |---|---|---|
-| Wazuh webhook tested with real SIEM alert | **CRITICAL** | ❌ Not done — untested critical path |
-| SOAR_DRY_RUN=false on isolated VM | High | ❌ Awaiting Hetzner servers |
-| Hetzner Node A + Node B provisioned | High | ❌ Awaiting first client |
-| First real client scan (non-test domain) | High | ❌ Pre-sales phase |
-| CF_API_TOKEN + CF_ZONE_ID in production .env | High | ❌ Awaiting client domain |
-| Telegram 3 channels created with real tokens | High | ❌ 15-minute task |
+| First real client scan (AsasEdu) | High | ✅ COMPLETE |
+| CF_API_TOKEN + CF_ZONE_ID in production .env | High | ❌ Awaiting client domain WAF control |
+| Telegram 3 channels created with real tokens | High | ✅ LIVE |
 | Contract financial tracking (Paid/Overdue invoices) | Medium | ❌ `contract_manager.py` tracks dates only |
 | Sales Pipeline automation | Low | Manual + Notion |
 
@@ -431,7 +431,6 @@ git push origin main
 ### Active
 | Issue | Severity | Fix |
 |---|---|---|
-| Wazuh webhook never tested with live SIEM | High | Phase 23 Step 2 |
 | `cleartext_http` high severity — NOTIFY_ONLY only (no PATCH_ADVISORY) | Low | Add to ROUTING_TABLE |
 | testssl.sh returns `error` status in tests | Low | testssl binary path issue — investigate in Phase 23 |
 | BankCo dashboard shows `techco_report.md` as last report | Low | BankCo has never been scanned — expected |
