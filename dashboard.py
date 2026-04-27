@@ -91,6 +91,54 @@ def check_telegram_health():
     except Exception as e:
         return {"status": "error", "error": str(e)[:60]}
 
+def display_dal_stats(client_id: str = "all"):
+    """Display DAL statistics for dashboard."""
+    from pathlib import Path
+    import json
+    from datetime import datetime, timezone, timedelta
+
+    print("\n== DECISION AUTOMATION LAYER ==")
+
+    # Load DAL audit log (last 24 hours)
+    log_file = Path(f"logs/dal/dal_decisions.jsonl")
+    if not log_file.exists():
+        print("No DAL decisions logged yet.")
+        return
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    t1 = t2 = t3 = 0
+    human_queue = []
+
+    with open(log_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            ts = datetime.fromisoformat(entry.get("timestamp", "1970-01-01T00:00:00+00:00"))
+            if ts < cutoff:
+                continue
+            tier = entry.get("tier")
+            if tier == 1:
+                t1 += 1
+            elif tier == 2:
+                t2 += 1
+            elif tier == 3:
+                t3 += 1
+                human_queue.append(entry)
+
+    print(f"Last 24h:")
+    print(f"  Tier 1 (auto-closed):     {t1} alerts")
+    print(f"  Tier 2 (auto-remediated): {t2} alerts")
+    print(f"  Tier 3 (human queue):     {t3} alerts  ← {len(human_queue)} pending review")
+
+    if human_queue:
+        print("\nHuman Queue (review within 2 hours):")
+        for item in human_queue[-5:]:  # Show last 5
+            print(f"  [{item['timestamp'][:16]}] {item.get('severity', 'unknown').upper()} "
+                  f"| {item.get('client_id', 'N/A')} | {item.get('reason', 'N/A')[:60]}")
+
+
 def print_dashboard():
     clients = load_clients()
     width = 72
@@ -115,6 +163,9 @@ def print_dashboard():
     soar_mode = os.getenv("SOAR_DRY_RUN", "true")
     soar_icon = "🔒" if soar_mode.lower() == "true" else "🔥"
     print(f"  {soar_icon} SOAR Mode  : {'DRY RUN' if soar_mode.lower() == 'true' else 'LIVE'}")
+
+    display_dal_stats()
+
 
     # ── Revenue ──
     rev = get_revenue_summary(clients)

@@ -36,3 +36,33 @@ def log_action(client_id: str, action: str, target_ip: str,
         logger.info(f"[Audit] Logged {action} for {target_ip} ({severity})")
     except Exception as e:
         logger.error(f"[Audit] Failed to log action: {e}")
+
+def log_dal_decision(
+    client_id: str,
+    alert_id: str,
+    tier: int,
+    action: str,
+    reason: str,
+    confidence: float,
+    severity: str,
+):
+    """Log DAL decision to a separate JSONL file for metrics."""
+    try:
+        log_file = BASE_DIR / "logs" / "dal" / "dal_decisions.jsonl"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "client_id": client_id,
+            "alert_id": alert_id,
+            "tier": tier,
+            "action": action,
+            "reason": reason,
+            "confidence": confidence,
+            "severity": severity,
+        }
+        
+        with open(log_file, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        logger.error(f"[Audit] Failed to log DAL decision: {e}")
