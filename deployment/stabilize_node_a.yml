@@ -1,0 +1,45 @@
+- hosts: node_a
+  become: true
+  tasks:
+    - name: Use recovered ossec.conf
+      copy:
+        src: /opt/synapse/node_a/ossec.conf.recovered
+        dest: /opt/synapse/node_a/ossec.conf.fixed
+        remote_src: yes
+
+    - name: Inject Clean Configuration
+      blockinfile:
+        path: /opt/synapse/node_a/ossec.conf.fixed
+        insertafter: "<ossec_config>"
+        block: |
+          <integration>
+            <name>custom-webhook</name>
+            <hook_url>http://164.68.121.179:5000/alert</hook_url>
+            <level>7</level>
+            <alert_format>json</alert_format>
+          </integration>
+          <localfile>
+            <log_format>syslog</log_format>
+            <location>/var/log/syslog</location>
+          </localfile>
+
+    - name: Finalize ossec.conf
+      copy:
+        src: /opt/synapse/node_a/ossec.conf.fixed
+        dest: /opt/synapse/node_a/ossec.conf
+        remote_src: yes
+
+    - name: Restart Wazuh Manager
+      shell: "docker restart node_a-wazuh.manager-1"
+
+    - name: Wait for startup
+      pause:
+        seconds: 15
+
+    - name: Verify Services
+      shell: "docker exec node_a-wazuh.manager-1 /var/ossec/bin/wazuh-control status"
+      register: wazuh_status
+
+    - name: Display Status
+      debug:
+        var: wazuh_status.stdout_lines

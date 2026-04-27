@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "framework": "NCA_ECC_2.0",
+  "last_updated": "2026-04-26",
+  "mappings": {
+    "5710": {"control": "NCA-3.1.1", "title": "SSH Brute Force", "severity": "high"},
+    "5712": {"control": "NCA-3.1.1", "title": "SSH Authentication Failure", "severity": "medium"},
+    "5720": {"control": "NCA-3.1.1", "title": "SSH Scan Detected", "severity": "medium"},
+    "5760": {"control": "NCA-3.1.1", "title": "SSH Login Failed", "severity": "medium"},
+    "5763": {"control": "NCA-3.1.1", "title": "Possible Break-in Attempt", "severity": "high"},
+    "31101": {"control": "NCA-2.3.1", "title": "Web Attack Detected", "severity": "high"},
+    "31103": {"control": "NCA-2.3.1", "title": "SQL Injection Attempt", "severity": "critical"},
+    "31106": {"control": "NCA-2.3.1", "title": "XSS Attack Attempt", "severity": "high"},
+    "100002": {"control": "NCA-2.1.3", "title": "Cleartext HTTP Transmission", "severity": "critical"},
+    "80100": {"control": "NCA-2.2.1", "title": "Port Scan Detected", "severity": "medium"},
+    "80101": {"control": "NCA-2.2.1", "title": "Full Port Scan", "severity": "high"},
+    "553": {"control": "NCA-2.4.1", "title": "File Integrity Change", "severity": "high"},
+    "554": {"control": "NCA-2.4.1", "title": "Monitored File Changed", "severity": "medium"},
+    "510": {"control": "NCA-2.4.2", "title": "New User Added", "severity": "medium"},
+    "511": {"control": "NCA-3.2.1", "title": "User Account Created", "severity": "low"},
+    "5303": {"control": "NCA-3.2.1", "title": "Privilege Escalation", "severity": "critical"},
+    "5501": {"control": "NCA-3.3.1", "title": "User Login Success", "severity": "info"},
+    "5502": {"control": "NCA-3.3.1", "title": "User Logout", "severity": "info"},
+    "87003": {"control": "NCA-2.5.1", "title": "Malware Detected", "severity": "critical"},
+    "87101": {"control": "NCA-2.5.1", "title": "Rootkit Detected", "severity": "critical"},
+    "31151": {"control": "NCA-2.3.2", "title": "DDoS Attempt", "severity": "high"},
+    "40101": {"control": "NCA-2.1.1", "title": "Vulnerability Scan", "severity": "medium"},
+    "40112": {"control": "NCA-2.1.2", "title": "Known CVE Exploit Attempt", "severity": "critical"}
+  }
+}

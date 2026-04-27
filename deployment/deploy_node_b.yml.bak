@@ -1,0 +1,99 @@
+# deploy_node_b.yml — Node B (SOAR + TheHive + Shuffle + webhook)
+---
+- hosts: node_b
+  become: true
+  tasks:
+    - name: Install Docker
+      shell: curl -fsSL https://get.docker.com | sh
+      args:
+        creates: /usr/bin/docker
+
+    - name: Synchronize Synapse repo from local machine
+      ansible.posix.synchronize:
+        src: /media/kyrie/VMs1/Cybersecurity_Tools_Automation/
+        dest: /opt/synapse
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=venv"
+
+    - name: Copy .env
+      copy:
+        src: ./production.env
+        dest: /opt/synapse/.env
+        mode: '0600'
+
+    - name: Install system dependencies for Python
+      apt:
+        name:
+          - python3-pip
+          - python3-venv
+          - python3-virtualenv
+          - rsync
+          - testssl.sh
+          - nmap
+        state: present
+        update_cache: yes
+
+    - name: Create Python virtual environment and install deps
+      ansible.builtin.pip:
+        requirements: /opt/synapse/requirements.txt
+        virtualenv: /opt/synapse/venv
+        virtualenv_command: python3 -m venv
+
+    - name: Create Docker Compose for TheHive + Shuffle
+      copy:
+        dest: /opt/synapse/deployment/docker-compose-node-b.yml
+        content: |
+          version: '3.8'
+          services:
+            shuffle:
+              image: ghcr.io/shuffle/shuffle:latest
+              ports:
+                - "3001:3001"
+              environment:
+                - SHUFFLE_DEFAULT_USERNAME=admin
+                - SHUFFLE_DEFAULT_PASSWORD=changeme
+              volumes:
+                - shuffle_data:/data
+
+            thehive:
+              image: strangebee/thehive:5
+              ports:
+                - "9000:9000"
+              environment:
+                - JVM_OPTS=-Xms512m -Xmx1g
+              volumes:
+                - thehive_data:/data
+
+          volumes:
+            shuffle_data:
+            thehive_data:
+
+    - name: Start TheHive + Shuffle
+      command: docker compose -f /opt/synapse/deployment/docker-compose-node-b.yml up -d
+
+    - name: Start webhook server (systemd)
+      copy:
+        dest: /etc/systemd/system/synapse-webhook.service
+        content: |
+          [Unit]
+          Description=Synapse Webhook Server
+          After=network.target docker.service
+          Requires=docker.service
+
+          [Service]
+          WorkingDirectory=/opt/synapse
+          ExecStart=/opt/synapse/venv/bin/python3 soc/webhook_server.py
+          Restart=always
+          User=root
+          EnvironmentFile=/opt/synapse/.env
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start Webhook service
+      systemd:
+        name: synapse-webhook
+        daemon_reload: yes
+        enabled: yes
+        state: restarted

@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "MultiEdit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "LS(*)",
+      "TodoRead(*)",
+      "TodoWrite(*)"
+    ]
+  },
+  "env": {
+    "PROJECT_ROOT": "/media/kyrie/VMs1/Cybersecurity_Tools_Automation",
+    "NODE_A": "167.86.98.91",
+    "NODE_B": "164.68.121.179",
+    "SSH_PORT": "2222",
+    "SOAR_DRY_RUN": "true"
+  }
+}

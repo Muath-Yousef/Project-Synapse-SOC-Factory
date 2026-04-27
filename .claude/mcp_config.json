@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "project-filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/media/kyrie/VMs1/Cybersecurity_Tools_Automation"
+      ],
+      "description": "Full read/write access to SOC Root project"
+    },
+    "project-git": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-git",
+        "--repository",
+        "/media/kyrie/VMs1/Cybersecurity_Tools_Automation"
+      ],
+      "description": "Git operations on SOC Root repo"
+    }
+  }
+}

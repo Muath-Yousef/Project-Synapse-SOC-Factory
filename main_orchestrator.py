@@ -241,16 +241,99 @@ class Orchestrator:
 
         return report_path
 
+def add_evidence_arguments(parser):
+    """Add evidence verification and export arguments to orchestrator CLI."""
+    evidence_group = parser.add_argument_group("Evidence Operations")
+
+    evidence_group.add_argument(
+        "--verify-evidence",
+        action="store_true",
+        help="Verify hash chain integrity for client evidence store"
+    )
+    evidence_group.add_argument(
+        "--export-evidence",
+        action="store_true",
+        help="Export audit package for auditor review"
+    )
+    evidence_group.add_argument(
+        "--client",
+        type=str,
+        help="Client ID for evidence operations (e.g., asasEdu)"
+    )
+    evidence_group.add_argument(
+        "--scan-id",
+        type=str,
+        help="Scan ID to filter evidence export (optional)"
+    )
+
+def handle_evidence_command(args) -> int:
+    """
+    Handle evidence verification and export CLI commands.
+    Returns exit code: 0 = success, 1 = failure.
+    """
+    from soc.evidence_store import EvidenceStore
+    import json
+    from pathlib import Path
+    from datetime import datetime, timezone
+
+    if not args.client:
+        print("❌ --client is required for evidence operations")
+        return 1
+
+    store = EvidenceStore(args.client)
+
+    if args.verify_evidence:
+        print(f"🔍 Verifying evidence chain for client: {args.client}")
+        result = store.verify_chain()
+        if result:
+            print("✅ INTEGRITY OK — chain verified successfully")
+            return 0
+        else:
+            print("❌ CHAIN BROKEN — evidence integrity failure detected")
+            return 1
+
+    if args.export_evidence:
+        print(f"📦 Exporting audit package for client: {args.client}")
+        result = store.verify_chain()
+        if not result:
+            print("❌ EXPORT BLOCKED — chain integrity failed. Fix chain before exporting.")
+            return 1
+
+        package = store.get_audit_package(scan_id=args.scan_id)
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        output_file = Path(f"reports/audit_packages/evidence_export_{args.client}_{timestamp}.json")
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(package, f, ensure_ascii=False, indent=2)
+
+        print(f"✅ Audit package exported: {output_file}")
+        print(f"   Records: {package['record_count']}")
+        print(f"   Chain integrity: {package['chain_integrity']}")
+        print(f"   Format version: {package['export_format_version']} (FROZEN — do not modify)")
+        return 0
+
+    return 0
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Synapse Orchestrator - Automated MSSP Triage")
-    parser.add_argument("--target", required=True, help="Target IP or Hostname to scan")
+    parser.add_argument("--target", required=False, help="Target IP or Hostname to scan")
     parser.add_argument("--client", required=True, help="Client ID for context retrieval")
     parser.add_argument("--report-type", choices=["internal", "executive", "both"], default="both",
                         help="Report type: internal (SOC), executive (client), or both (default)")
     parser.add_argument("--test-mode", action="store_true", help="Bypass SafetyGuard for local verification")
+    add_evidence_arguments(parser)
     
     args = parser.parse_args()
+    
+    if args.verify_evidence or args.export_evidence:
+        sys.exit(handle_evidence_command(args))
+        
+    if not args.target:
+        parser.error("--target is required for normal orchestration runs")
+
     
     # Configure root logging for CLI
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')

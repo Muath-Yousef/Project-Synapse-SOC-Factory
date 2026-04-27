@@ -1,0 +1,43 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Ensure UFW is installed
+      apt:
+        name: ufw
+        state: present
+
+    - name: Reset UFW to default
+      shell: "ufw --force reset"
+
+    - name: Set default policies
+      shell: "{{ item }}"
+      loop:
+        - "ufw default deny incoming"
+        - "ufw default allow outgoing"
+
+    - name: Allow SSH on all nodes
+      shell: "ufw allow 22/tcp"
+
+- hosts: node_a
+  become: true
+  tasks:
+    - name: Allow Wazuh Agent traffic
+      shell: "ufw allow 1514/tcp"
+
+    - name: Allow Wazuh Syslog traffic (UDP)
+      shell: "ufw allow 514/udp"
+
+- hosts: node_b
+  become: true
+  tasks:
+    - name: Allow Synapse Webhook from Node A only
+      shell: "ufw allow from 167.86.98.91 to any port 5000 proto tcp"
+
+    - name: Allow TheHive
+      shell: "ufw allow 9000/tcp"
+
+- hosts: all
+  become: true
+  tasks:
+    - name: Enable UFW
+      shell: "ufw --force enable"

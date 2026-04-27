@@ -1,0 +1,27 @@
+{
+  "methods": {
+    "binance_trc20": {
+      "label": "Crypto (USDT/USDC \u2014 TRC20)",
+      "address": "TWcSFQbAB9Axv16L5VvdNqL3ZknRGuV3Gv",
+      "network": "Tron (TRC-20)",
+      "instructions": "Send exact amount to address above. Include your Order ID in the memo field.",
+      "logo": "binance"
+    },
+    "bank_transfer": {
+      "label": "Bank Transfer (IBAN)",
+      "iban": "JO28JONB80000000000TMA96680496",
+      "account_name": "SOC Root",
+      "instructions": "Use your company name as transfer reference."
+    },
+    "cliq": {
+      "label": "CliQ (Arab Bank)",
+      "alias": "SOCROOT",
+      "instructions": "Send via CliQ using alias SOCROOT. Include Order ID in notes."
+    },
+    "paypal": {
+      "label": "PayPal",
+      "link": "https://www.paypal.me/socroot",
+      "instructions": "Use Goods & Services option. Include Order ID in notes."
+    }
+  }
+}

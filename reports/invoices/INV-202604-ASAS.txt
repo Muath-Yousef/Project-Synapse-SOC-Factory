@@ -1,0 +1,9 @@
+SYNAPSE SECURITY — INVOICE
+========================================
+Invoice No : INV-202604-ASAS
+Date       : 2026-04-21
+Period     : April 2026
+Due Date   : 2026-05-05
+Client     : AsasEdu
+Service    : Managed Security (soc_standard)
+Amount     : JOD 1,500

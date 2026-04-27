@@ -1,18 +1,79 @@
 {
-  "framework": "NCA Essential Cybersecurity Controls (ECC-1:2018)",
-  "controls": [
-    {
-      "id": "NCA-2-1-3",
-      "domain": "Data Security",
-      "title": "Data Encryption",
-      "description": "All sensitive data must be encrypted at rest and in transit using strong, state-of-the-art encryption algorithms.",
-      "implementation_guidance": "Use minimum AES-256 for data at rest and TLS 1.3 for data in transit."
+  "framework": "NCA_ECC_2.0",
+  "version": "2.0",
+  "total_controls": 114,
+  "controls": {
+    "NCA-2.3.1": {
+      "control_id": "NCA-2.3.1",
+      "domain": "Network Security",
+      "title_en": "Network Security Controls — Perimeter Defense",
+      "title_ar": "ضوابط أمن الشبكة — الدفاع المحيطي",
+      "description": "Implement firewall rules, intrusion detection, and WAF to protect network perimeter",
+      "wazuh_rule_ids": [31101, 31103, 31104, 31151, 80100, 80101],
+      "scanner_tool": "nmap",
+      "severity_weight": -40,
+      "auto_detectable": true,
+      "remediation_summary": "Enable WAF rules blocking OWASP Top 10. Configure IDS/IPS. Segment network DMZ."
     },
-    {
-      "id": "NCA-3-1-1",
-      "domain": "Identity and Access Management",
-      "title": "Multi-Factor Authentication",
-      "description": "MFA must be enforced for all administrative and remote access to the organization's information systems."
+    "NCA-3.1.1": {
+      "control_id": "NCA-3.1.1",
+      "domain": "Access Control",
+      "title_en": "Authentication and Access Controls",
+      "title_ar": "ضوابط المصادقة والوصول",
+      "description": "Enforce strong authentication, MFA, account lockout policies",
+      "wazuh_rule_ids": [5701, 5710, 5712, 5716, 5720, 5760],
+      "scanner_tool": "nmap",
+      "severity_weight": -30,
+      "auto_detectable": true,
+      "remediation_summary": "Enable MFA. Configure account lockout after 5 failures. Restrict SSH to key-based auth."
+    },
+    "NCA-2.1.3": {
+      "control_id": "NCA-2.1.3",
+      "domain": "Asset Management",
+      "title_en": "Asset Classification and Encryption",
+      "title_ar": "تصنيف الأصول والتشفير",
+      "description": "Classify assets by sensitivity, enforce encryption for sensitive data transmission",
+      "wazuh_rule_ids": [100002],
+      "scanner_tool": "testssl",
+      "severity_weight": -40,
+      "auto_detectable": true,
+      "remediation_summary": "Force HTTPS redirect. Deploy TLS 1.2+. Disable cleartext protocols."
+    },
+    "NCA-2.2.1": {
+      "control_id": "NCA-2.2.1",
+      "domain": "Vulnerability Management",
+      "title_en": "Vulnerability Assessment and Patching",
+      "title_ar": "تقييم الثغرات والتحديثات",
+      "description": "Regular vulnerability scanning, patch management, CVE tracking",
+      "wazuh_rule_ids": [23001, 23002, 80100, 80101],
+      "scanner_tool": "nuclei",
+      "severity_weight": -20,
+      "auto_detectable": true,
+      "remediation_summary": "Patch critical CVEs within 7 days, high within 30 days. Enable auto-update where safe."
+    },
+    "NCA-2.5.1": {
+      "control_id": "NCA-2.5.1",
+      "domain": "Malware Protection",
+      "title_en": "Anti-Malware and Endpoint Protection",
+      "title_ar": "الحماية من البرامج الضارة",
+      "description": "Deploy anti-malware, monitor for suspicious executables, protect endpoints",
+      "wazuh_rule_ids": [87003, 510, 511],
+      "scanner_tool": "wazuh",
+      "severity_weight": -40,
+      "auto_detectable": true,
+      "remediation_summary": "Deploy endpoint protection. Enable Wazuh FIM. Block suspicious executables via policy."
+    },
+    "NCA-3.4.1": {
+      "control_id": "NCA-3.4.1",
+      "domain": "Email Security",
+      "title_en": "Email Security Controls",
+      "title_ar": "ضوابط أمن البريد الإلكتروني",
+      "description": "Implement SPF, DKIM, DMARC to prevent email spoofing and phishing",
+      "wazuh_rule_ids": [200100, 200101, 200102],
+      "scanner_tool": "dns_tool",
+      "severity_weight": -30,
+      "auto_detectable": true,
+      "remediation_summary": "Add SPF record with -all. Add DMARC with p=quarantine. Configure DKIM for all sending domains."
     }
-  ]
+  }
 }

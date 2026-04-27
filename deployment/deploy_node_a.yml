@@ -1,0 +1,58 @@
+---
+- hosts: node_a
+  become: true
+  vars:
+    # Requires webhook_url to be passed at runtime using -e "webhook_url=..."
+    webhook_url: ""
+  tasks:
+    - name: Ensure sysctl params for OpenSearch are set
+      sysctl:
+        name: vm.max_map_count
+        value: '262144'
+        state: present
+        reload: yes
+
+    - name: Install Docker
+      shell: curl -fsSL https://get.docker.com | sh
+      args:
+        creates: /usr/bin/docker
+
+    - name: Create deployment directory
+      file:
+        path: /opt/synapse/node_a
+        state: directory
+
+    - name: Copy docker-compose
+      copy:
+        src: ./docker-compose-node-a.yml
+        dest: /opt/synapse/node_a/docker-compose.yml
+
+    - name: Fetch default ossec.conf from wazuh container temporarily
+      shell: |
+        docker run --rm --entrypoint cat wazuh/wazuh-manager:4.7.3 /var/ossec/etc/ossec.conf > /opt/synapse/node_a/ossec.conf
+      args:
+        creates: /opt/synapse/node_a/ossec.conf
+
+    - name: Inject Custom Webhook Integration
+      blockinfile:
+        path: /opt/synapse/node_a/ossec.conf
+        insertbefore: "</ossec_config>"
+        marker: "<!-- {mark} ANSIBLE MANAGED WEBHOOK -->"
+        block: |
+          <integration>
+            <name>custom-webhook</name>
+            <hook_url>{{ webhook_url }}</hook_url>
+            <level>7</level>
+            <alert_format>json</alert_format>
+          </integration>
+
+    - name: Pre-pull Wazuh images
+      shell: |
+        docker pull wazuh/wazuh-indexer:4.7.3
+        docker pull wazuh/wazuh-manager:4.7.3
+
+    - name: Start production minimal SIEM stack
+      shell: "docker compose -f /opt/synapse/node_a/docker-compose.yml up -d"
+
+    - name: Restart wazuh manager
+      shell: docker restart $(docker ps -q --filter "name=wazuh.manager")

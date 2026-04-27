@@ -1,5 +1,7 @@
 import logging
 from typing import Dict, Any
+from soc.evidence_store import EvidenceRecord, EvidenceStore, hash_raw_log
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -68,3 +70,57 @@ class ComplianceEngine:
         if score >= 70: return "C"
         if score >= 60: return "D"
         return "F"
+
+def generate_evidence_from_finding(
+    control_id: str,
+    framework: str,
+    client_id: str,
+    scan_id: str,
+    status: str,
+    finding_summary: str,
+    source: str,
+    raw_finding_data: dict,
+    store: EvidenceStore,
+) -> EvidenceRecord:
+    """
+    Generate and append EvidenceRecord from compliance engine finding.
+    Called after each control evaluation — ensures every finding has evidence.
+    """
+    event_id = f"{scan_id}_{control_id}_{source}"
+
+    record = EvidenceRecord(
+        control_id=control_id,
+        framework=framework,
+        client_id=client_id,
+        scan_id=scan_id,
+        status=status,
+        finding_summary=finding_summary,
+        source=source,
+        event_id=event_id,
+        raw_log_hash=hash_raw_log(str(raw_finding_data)),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        origin="remote",
+    )
+
+    return store.append(record)
+
+def attach_evidence_references(
+    compliance_report: dict,
+    client_id: str,
+    scan_id: str,
+    store: EvidenceStore,
+) -> dict:
+    """
+    Attach evidence record references to compliance report output.
+    Auditor can verify each finding via chain.
+    """
+    for control in compliance_report.get("controls", []):
+        control_id = control.get("control_id")
+        if control_id:
+            records = store.get_records_by_control(control_id)
+            control["evidence_count"] = len(records)
+            control["latest_evidence_hash"] = records[-1]["record_hash"][:16] if records else None
+            control["evidence_chain_file"] = f"knowledge/evidence/{client_id}/chain.jsonl"
+
+    return compliance_report
+
