@@ -1,0 +1,59 @@
+{
+  "framework": "UAE_PDPL_2022",
+  "version": "2022",
+  "total_controls": 40,
+  "controls": {
+    "PDPL-ART11": {
+      "control_id": "PDPL-ART11",
+      "article": "Article 11",
+      "domain": "Data Transfer",
+      "title_en": "Cross-Border Data Transfer Restrictions",
+      "title_ar": "قيود نقل البيانات عبر الحدود",
+      "description": "Personal data may not be transferred outside UAE without adequate protection guarantees",
+      "scanner_tool": "dns_tool",
+      "wazuh_rule_ids": [],
+      "severity_weight": -40,
+      "auto_detectable": false,
+      "remediation_summary": "Document all cross-border data flows. Implement data transfer agreements. Use UAE-hosted services where possible."
+    },
+    "PDPL-ART14": {
+      "control_id": "PDPL-ART14",
+      "article": "Article 14",
+      "domain": "Data Subject Rights",
+      "title_en": "Data Subject Access and Correction Rights",
+      "title_ar": "حق وصول ذوي الشأن وتصحيح البيانات",
+      "description": "Data subjects have rights to access, correct, and delete their personal data",
+      "scanner_tool": "manual",
+      "wazuh_rule_ids": [],
+      "severity_weight": -30,
+      "auto_detectable": false,
+      "remediation_summary": "Implement data subject request process. Build access request portal or email workflow. Response SLA: 30 days."
+    },
+    "PDPL-ART16": {
+      "control_id": "PDPL-ART16",
+      "article": "Article 16",
+      "domain": "Security Measures",
+      "title_en": "Technical and Organizational Security Measures",
+      "title_ar": "التدابير الأمنية التقنية والتنظيمية",
+      "description": "Implement appropriate technical measures to protect personal data",
+      "scanner_tool": "nuclei",
+      "wazuh_rule_ids": [100002, 550, 553],
+      "severity_weight": -40,
+      "auto_detectable": true,
+      "remediation_summary": "Encrypt personal data at rest and in transit. Enable access logging. Implement MFA for systems with personal data."
+    },
+    "PDPL-ART17": {
+      "control_id": "PDPL-ART17",
+      "article": "Article 17",
+      "domain": "Incident Response",
+      "title_en": "Data Breach Notification Requirements",
+      "title_ar": "متطلبات الإخطار بخرق البيانات",
+      "description": "Notify UAE Data Office and affected individuals of personal data breaches within 72 hours",
+      "scanner_tool": "wazuh",
+      "wazuh_rule_ids": [87003, 550, 553, 554],
+      "severity_weight": -40,
+      "auto_detectable": true,
+      "remediation_summary": "Implement breach detection monitoring. Create breach notification template. Establish 72-hour response process."
+    }
+  }
+}

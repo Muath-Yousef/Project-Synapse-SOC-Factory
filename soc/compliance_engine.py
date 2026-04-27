@@ -1,5 +1,7 @@
 import logging
 from typing import Dict, Any
+import json
+from pathlib import Path
 from soc.evidence_store import EvidenceRecord, EvidenceStore, hash_raw_log
 from datetime import datetime, timezone
 
@@ -124,3 +126,158 @@ def attach_evidence_references(
 
     return compliance_report
 
+
+NCA_CONTROLS_PATH = Path("knowledge/compliance_frameworks/nca_controls.json")
+
+
+def load_nca_controls() -> dict:
+    """Load full NCA ECC 2.0 control database."""
+    with open(NCA_CONTROLS_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("controls", {})
+
+
+def evaluate_all_nca_controls(
+    scan_results: dict,
+    client_id: str,
+    scan_id: str,
+) -> dict:
+    """
+    Evaluate client against all 114 NCA ECC 2.0 controls.
+
+    For each control:
+    - auto_detectable=True: evaluate from scan results
+    - auto_detectable=False: flag as MANUAL_REQUIRED (client provides policy docs)
+
+    Returns complete gap report with per-control status.
+    """
+    controls = load_nca_controls()
+    gap_report = {
+        "client_id": client_id,
+        "scan_id": scan_id,
+        "framework": "NCA_ECC_2.0",
+        "total_controls": len(controls),
+        "evaluated": 0,
+        "passed": 0,
+        "failed": 0,
+        "partial": 0,
+        "manual_required": 0,
+        "compliance_score": 0.0,
+        "grade": "F",
+        "controls": [],
+    }
+
+    total_weight = 0
+    earned_weight = 0
+
+    for control_id, control_data in controls.items():
+        auto_detectable = control_data.get("auto_detectable", False)
+        severity_weight = abs(control_data.get("severity_weight", -10))
+
+        if not auto_detectable:
+            status = "MANUAL_REQUIRED"
+            gap_report["manual_required"] += 1
+            finding = f"Control {control_id} requires policy documentation from client"
+        else:
+            # Evaluate from scan results
+            status, finding = evaluate_control_from_scan(
+                control_id=control_id,
+                control_data=control_data,
+                scan_results=scan_results,
+            )
+            gap_report["evaluated"] += 1
+
+            total_weight += severity_weight
+            if status == "PASS":
+                earned_weight += severity_weight
+                gap_report["passed"] += 1
+            elif status == "PARTIAL":
+                earned_weight += severity_weight * 0.5
+                gap_report["partial"] += 1
+            else:
+                gap_report["failed"] += 1
+
+        control_entry = {
+            "control_id": control_id,
+            "domain": control_data.get("domain", ""),
+            "title_en": control_data.get("title_en", ""),
+            "title_ar": control_data.get("title_ar", ""),
+            "status": status,
+            "finding": finding,
+            "remediation": control_data.get("remediation_summary", ""),
+            "severity_weight": severity_weight,
+            "auto_detectable": auto_detectable,
+            "priority": get_remediation_priority(status, severity_weight),
+        }
+        gap_report["controls"].append(control_entry)
+
+    # Calculate compliance score (automated controls only)
+    if total_weight > 0:
+        gap_report["compliance_score"] = round((earned_weight / total_weight) * 100, 1)
+
+    gap_report["grade"] = score_to_grade(gap_report["compliance_score"])
+    return gap_report
+
+
+def evaluate_control_from_scan(
+    control_id: str,
+    control_data: dict,
+    scan_results: dict,
+) -> tuple[str, str]:
+    """
+    Evaluate a single control against scan results.
+    Returns (status, finding_description).
+    """
+    wazuh_rule_ids = set(control_data.get("wazuh_rule_ids", []))
+    scanner_tool = control_data.get("scanner_tool", "")
+
+    triggered_rules = set(scan_results.get("triggered_wazuh_rules", []))
+    scanner_findings = scan_results.get("scanner_findings", {}).get(control_id, {})
+
+    if triggered_rules & wazuh_rule_ids:
+        matched = triggered_rules & wazuh_rule_ids
+        return "FAIL", f"Wazuh rules triggered: {matched} — control violated"
+
+    if scanner_findings:
+        severity = scanner_findings.get("severity", "medium")
+        if severity in {"critical", "high"}:
+            return "FAIL", scanner_findings.get("description", "Finding detected")
+        return "PARTIAL", scanner_findings.get("description", "Partial compliance")
+
+    return "PASS", "No violations detected in automated scan"
+
+
+def get_remediation_priority(status: str, weight: int) -> str:
+    if status == "FAIL" and weight >= 30:
+        return "Critical"
+    elif status == "FAIL":
+        return "High"
+    elif status == "PARTIAL":
+        return "Medium"
+    return "Low"
+
+
+def score_to_grade(score: float) -> str:
+    if score >= 90:
+        return "A"
+    elif score >= 80:
+        return "B"
+    elif score >= 70:
+        return "C"
+    elif score >= 60:
+        return "D"
+    return "F"
+
+
+def build_manual_checklist(gap_report: dict) -> list[dict]:
+    """Extract controls requiring manual client documentation."""
+    return [
+        {
+            "control_id": c["control_id"],
+            "title_en": c["title_en"],
+            "title_ar": c["title_ar"],
+            "action_required": "Provide policy documentation or evidence",
+        }
+        for c in gap_report["controls"]
+        if c["status"] == "MANUAL_REQUIRED"
+    ]

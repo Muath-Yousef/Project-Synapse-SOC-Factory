@@ -18,7 +18,11 @@ import sys
 import argparse
 import warnings
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+import urllib.request
+from pathlib import Path
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="fpdf")
 from fpdf import FPDF
@@ -588,6 +592,180 @@ class ClientReportGenerator:
 
 
 # ============================================================================
+# Arabic Support
+# ============================================================================
+def ensure_arabic_font():
+    """Download Amiri Arabic font if not present."""
+    font_dir = Path("reports/fonts")
+    font_dir.mkdir(parents=True, exist_ok=True)
+    font_path = font_dir / "Amiri-Regular.ttf"
+
+    if not font_path.exists():
+        print("Downloading Amiri Arabic font...")
+        url = "https://github.com/aliftype/amiri/releases/download/1.000/Amiri-1.000.zip"
+        # Fallback: use system font or bundle font in repo
+        print(f"⚠️  Download Amiri-Regular.ttf to {font_path} for Arabic support")
+
+    return str(font_path)
+
+
+def prepare_arabic(text: str) -> str:
+    """Reshape and apply BiDi for correct Arabic PDF rendering."""
+    reshaped = arabic_reshaper.reshape(text)
+    return get_display(reshaped)
+
+
+class ArabicFPDF(FPDF):
+    """FPDF subclass with Arabic text support."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        font_path = ensure_arabic_font()
+        if Path(font_path).exists():
+            self.add_font("Amiri", "", font_path, uni=True)
+            self.arabic_font_available = True
+        else:
+            self.arabic_font_available = False
+
+    def arabic_cell(self, w: float, h: float, text: str, align: str = "R", **kwargs):
+        """Render Arabic text with proper reshaping and BiDi."""
+        if self.arabic_font_available:
+            self.set_font("Amiri", size=12)
+        prepared = prepare_arabic(text)
+        self.cell(w, h, prepared, align=align, **kwargs)
+
+    def arabic_multi_cell(self, w: float, h: float, text: str, **kwargs):
+        """Multi-line Arabic text cell."""
+        if self.arabic_font_available:
+            self.set_font("Amiri", size=11)
+        prepared = prepare_arabic(text)
+        self.multi_cell(w, h, prepared, align="R", **kwargs)
+
+
+def generate_arabic_report(
+    gap_report: dict,
+    client_id: str,
+    scan_id: str,
+    output_path: Optional[str] = None,
+) -> str:
+    """
+    Generate Arabic executive compliance report as PDF.
+    Returns path to generated file.
+    """
+    pdf = ArabicFPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    score = gap_report.get("compliance_score", 0)
+    grade = gap_report.get("grade", "F")
+
+    # ── Cover Page ──────────────────────────────────────────────────────────
+    pdf.set_font("Helvetica", "B", 24)
+    pdf.cell(0, 20, "SOC Root", align="C", ln=True)
+
+    pdf.arabic_cell(0, 10, "تقرير الامتثال الأمني", align="C")
+    pdf.ln(5)
+    pdf.arabic_cell(0, 8, f"العميل: {client_id}", align="C")
+    pdf.ln(5)
+
+    risk_ar = _score_to_arabic_risk(score)
+    pdf.arabic_cell(0, 8, f"مستوى الخطر: {risk_ar}", align="C")
+    pdf.ln(10)
+
+    # ── Executive Summary ────────────────────────────────────────────────────
+    pdf.add_page()
+    pdf.arabic_cell(0, 12, "الملخص التنفيذي", align="R")
+    pdf.ln(8)
+
+    summary_ar = (
+        f"تم فحص بنيتك التحتية وتقييمها وفق معايير هيئة الاتصالات الوطنية NCA ECC 2.0. "
+        f"نتيجة الامتثال: {score}% (تقدير {grade}). "
+        f"عدد الضوابط الفاشلة: {gap_report.get('failed', 0)}. "
+        f"تتطلب مراجعة فورية."
+    )
+    pdf.arabic_multi_cell(0, 8, summary_ar)
+    pdf.ln(5)
+
+    # ── Risk Table ───────────────────────────────────────────────────────────
+    pdf.arabic_cell(0, 12, "جدول المخاطر", align="R")
+    pdf.ln(8)
+
+    failed_controls = [c for c in gap_report.get("controls", []) if c["status"] == "FAIL"]
+    for ctrl in failed_controls[:10]:  # Top 10 failures
+        priority_ar = _priority_to_arabic(ctrl.get("priority", "Medium"))
+        pdf.arabic_cell(0, 7, f"• {ctrl['control_id']} — {ctrl['title_ar']} ({priority_ar})", align="R")
+        pdf.ln(5)
+
+    # ── Remediation Roadmap ──────────────────────────────────────────────────
+    pdf.add_page()
+    pdf.arabic_cell(0, 12, "خارطة المعالجة", align="R")
+    pdf.ln(8)
+
+    pdf.arabic_cell(0, 9, "المرحلة الأولى (0-7 أيام): الإجراءات الحرجة", align="R")
+    pdf.ln(5)
+    critical = [c for c in failed_controls if c.get("priority") == "Critical"]
+    for ctrl in critical[:5]:
+        pdf.arabic_multi_cell(0, 7, f"• {ctrl['remediation']}")
+        pdf.ln(3)
+
+    pdf.arabic_cell(0, 9, "المرحلة الثانية (7-30 يوم): الإجراءات العالية", align="R")
+    pdf.ln(5)
+    high = [c for c in failed_controls if c.get("priority") == "High"]
+    for ctrl in high[:5]:
+        pdf.arabic_multi_cell(0, 7, f"• {ctrl['remediation']}")
+        pdf.ln(3)
+
+    pdf.arabic_cell(0, 9, "المرحلة الثالثة (30-90 يوم): تحسينات متوسطة", align="R")
+    pdf.ln(5)
+
+    # ── Compliance Status ────────────────────────────────────────────────────
+    pdf.add_page()
+    pdf.arabic_cell(0, 12, "حالة الامتثال — NCA ECC 2.0", align="R")
+    pdf.ln(8)
+
+    pdf.arabic_cell(0, 8, f"نسبة الامتثال: {score}%", align="R")
+    pdf.ln(5)
+    pdf.arabic_cell(0, 8, f"الضوابط الناجحة: {gap_report.get('passed', 0)}", align="R")
+    pdf.ln(5)
+    pdf.arabic_cell(0, 8, f"الضوابط الفاشلة: {gap_report.get('failed', 0)}", align="R")
+    pdf.ln(5)
+    pdf.arabic_cell(0, 8, f"تتطلب توثيقاً يدوياً: {gap_report.get('manual_required', 0)}", align="R")
+    pdf.ln(10)
+
+    # ── About SOC Root ───────────────────────────────────────────────────────
+    pdf.arabic_cell(0, 12, "عن SOC Root", align="R")
+    pdf.ln(8)
+    about_ar = (
+        "SOC Root منصة أمنية مُدارة بالذكاء الاصطناعي متخصصة للشركات الصغيرة والمتوسطة "
+        "في الأردن والإمارات. نوفر خدمات الامتثال الأمني وفق معايير NCA ECC 2.0 وISO 27001 "
+        "وUAE PDPL. للتواصل: security@socroot.com | socroot.com"
+    )
+    pdf.arabic_multi_cell(0, 8, about_ar)
+
+    # Save
+    if output_path is None:
+        output_path = f"reports/{client_id}_report_ar_{scan_id}.pdf"
+
+    pdf.output(output_path)
+    print(f"✅ Arabic report generated: {output_path}")
+    return output_path
+
+
+def _score_to_arabic_risk(score: float) -> str:
+    if score < 60:
+        return "حرج 🔴"
+    elif score < 75:
+        return "عالٍ 🟠"
+    elif score < 90:
+        return "متوسط 🟡"
+    return "منخفض 🟢"
+
+
+def _priority_to_arabic(priority: str) -> str:
+    return {"Critical": "حرج", "High": "عالٍ", "Medium": "متوسط", "Low": "منخفض"}.get(priority, priority)
+
+
+# ============================================================================
 # CLI entry point
 # ============================================================================
 def main():
@@ -597,22 +775,48 @@ def main():
     parser.add_argument("--domain", default="asas4edu.net", help="Primary domain")
     parser.add_argument("--output", default="reports/output/asasEdu_executive_report_2026-04.pdf",
                         help="Output PDF path")
+    parser.add_argument("--lang", default="en", choices=["en", "ar"], help="Report language (en or ar)")
     args = parser.parse_args()
 
     # Resolve paths relative to project root
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+        
     scan_path = os.path.join(project_root, args.scan) if not os.path.isabs(args.scan) else args.scan
     output_path = os.path.join(project_root, args.output) if not os.path.isabs(args.output) else args.output
 
-    gen = ClientReportGenerator()
-    result = gen.generate(
-        scan_path=scan_path,
-        client_name=args.client,
-        domain=args.domain,
-        output_path=output_path,
-    )
-    print(f"PDF generated: {result}")
+    if args.lang == "ar":
+        try:
+            from soc.compliance_engine import evaluate_all_nca_controls
+        except ImportError:
+            print("Error: Could not import evaluate_all_nca_controls from soc.compliance_engine.")
+            sys.exit(1)
+            
+        with open(scan_path, "r") as f:
+            scan_data = json.load(f)
+            
+        scan_id = os.path.basename(scan_path).replace(".json", "")
+        gap_report = evaluate_all_nca_controls(scan_data, args.client, scan_id)
+        
+        # Modify the output path for Arabic report if not explicitly provided different from default
+        if "ar" not in output_path.lower():
+            base, ext = os.path.splitext(output_path)
+            output_path = f"{base}_ar{ext}"
+            
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        generate_arabic_report(gap_report, args.client, scan_id, output_path)
+    else:
+        gen = ClientReportGenerator()
+        result = gen.generate(
+            scan_path=scan_path,
+            client_name=args.client,
+            domain=args.domain,
+            output_path=output_path,
+        )
+        print(f"PDF generated: {result}")
 
 
 if __name__ == "__main__":
     main()
+

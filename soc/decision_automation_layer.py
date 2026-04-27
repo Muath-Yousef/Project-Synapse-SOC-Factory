@@ -148,3 +148,61 @@ def classify_alert(alert: dict, dry_run: Optional[bool] = None) -> AlertDecision
         confidence_used=confidence,
         severity_used=severity,
     )
+
+import json
+import hashlib
+from pathlib import Path
+
+class AdaptiveDAL:
+    """
+    Learns from historical false positive patterns.
+    Adjusts DAL tier decisions based on remediation success rate.
+    Build trigger: 10+ clients + 90+ days data.
+    """
+
+    HISTORICAL_DB_PATH = Path("knowledge/dal_historical_patterns.jsonl")
+
+    def __init__(self):
+        self.historical_db = self._load_historical_patterns()
+
+    def _load_historical_patterns(self) -> dict:
+        patterns = {}
+        if not self.HISTORICAL_DB_PATH.exists():
+            return patterns
+        with open(self.HISTORICAL_DB_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entry = json.loads(line)
+                    patterns[entry["pattern_hash"]] = entry
+        return patterns
+
+    def _hash_pattern(self, alert: dict) -> str:
+        """Create deterministic hash of alert pattern (rule + source + severity)."""
+        key = f"{alert.get('rule', {}).get('id', '')}_{alert.get('source', '')}_{alert.get('severity', '')}"
+        return hashlib.md5(key.encode()).hexdigest()
+
+    def classify_alert_adaptive(self, alert: dict) -> AlertDecision:
+        """Classify with historical pattern adjustment."""
+        # Base classification
+        decision = classify_alert(alert, dry_run=SOAR_DRY_RUN)
+        pattern_hash = self._hash_pattern(alert)
+
+        if pattern_hash not in self.historical_db:
+            return decision
+
+        history = self.historical_db[pattern_hash]
+        fp_rate = history.get("false_positive_rate", 0.0)
+        success_rate = history.get("remediation_success_rate", 0.0)
+
+        # High false positive rate → escalate to human
+        if fp_rate > 0.20 and decision.tier == Tier.AUTO_REMEDIATE:
+            decision.tier = Tier.HUMAN_ESCALATE
+            decision.reason += f" (adaptive: FP rate {fp_rate:.0%} > 20%)"
+
+        # High remediation success → promote to auto-remediate
+        if success_rate > 0.90 and decision.tier == Tier.HUMAN_ESCALATE and alert.get("confidence", 0) > 0.65:
+            decision.tier = Tier.AUTO_REMEDIATE
+            decision.reason += f" (adaptive: success rate {success_rate:.0%} > 90%)"
+            
+        return decision

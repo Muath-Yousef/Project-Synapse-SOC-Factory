@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  portal:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.portal
+    container_name: synapse_portal
+    ports:
+      - "8000:8000"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - EVIDENCE_ROOT=/app/evidence
+    volumes:
+      - ../soc/audit:/app/evidence
+      - ../knowledge:/app/knowledge
+    restart: unless-stopped
+    networks:
+      - synapse_net
+
+networks:
+  synapse_net:
+    driver: bridge
