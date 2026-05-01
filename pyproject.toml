@@ -1,0 +1,8 @@
+[project]
+name = "project-synapse-soc-factory"
+version = "0.1.0"
+description = "SOC Automation Factory — Synapse Project"
+requires-python = ">=3.10"
+
+[tool.uv.workspace]
+members = ["soc_core", "shared_skills"]

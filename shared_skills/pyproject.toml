@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "shared-skills"
+version = "0.1.0"
+description = "Shared expert skills library for SOC Root agents"
+requires-python = ">=3.10"
+
+[tool.hatch.build.targets.wheel]
+packages = ["triage", "remediation", "devops"]
