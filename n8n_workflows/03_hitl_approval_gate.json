@@ -1,0 +1,149 @@
+{
+  "name": "SOC — HITL Approval Gate",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hitl-pending",
+        "responseMode": "onReceived",
+        "responseData": "{ \"status\": \"review_queued\" }"
+      },
+      "name": "Webhook: HITL Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "hitl-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $json;\nconst steps = (state.critical_tool_calls || []).map(t => {\n  const args = typeof t.args === 'string' ? t.args : JSON.stringify(t.args || {});\n  return `• ${t.tool}: ${args}`;\n}).join('\\n');\n\nreturn [{\n  json: {\n    session_id: state.session_id,\n    plan: state.current_plan || 'No plan text',\n    steps_summary: steps || 'No critical steps',\n    alert_title: state.alert_title || 'Unknown Alert'\n  }\n}];"
+      },
+      "name": "Format Approval Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "id": "format-request"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TELEGRAM_WEBHOOK_URL }}",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID_ACTIONS }}\",\n  \"text\": \"⚠️ *HITL Approval Required*\\n\\nAlert: {{ $json.alert_title }}\\nSession: `{{ $json.session_id }}`\\n\\n*Proposed Actions:*\\n{{ $json.steps_summary }}\\n\\nReply:\\n✅ /approve_{{ $json.session_id }}\\n❌ /reject_{{ $json.session_id }}\",\n  \"parse_mode\": \"Markdown\"\n}"
+      },
+      "name": "Send Approval Request to Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "id": "send-approval"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hitl-approve",
+        "responseMode": "onReceived"
+      },
+      "name": "Webhook: Operator Approves",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "id": "approve-webhook"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/hitl/resume",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"session_id\": \"{{ $json.session_id }}\",\n  \"approved\": true\n}"
+      },
+      "name": "Resume Agent — Approved",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 500],
+      "id": "resume-approved"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TELEGRAM_WEBHOOK_URL }}",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID_ACTIONS }}\",\n  \"text\": \"✅ Session `{{ $json.session_id }}` *APPROVED* — executing remediation.\",\n  \"parse_mode\": \"Markdown\"\n}"
+      },
+      "name": "Notify — Execution Started",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 500],
+      "id": "notify-approved"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hitl-reject",
+        "responseMode": "onReceived"
+      },
+      "name": "Webhook: Operator Rejects",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 700],
+      "id": "reject-webhook"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/hitl/resume",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"session_id\": \"{{ $json.session_id }}\",\n  \"approved\": false\n}"
+      },
+      "name": "Resume Agent — Rejected",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 700],
+      "id": "resume-rejected"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TELEGRAM_WEBHOOK_URL }}",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID_ACTIONS }}\",\n  \"text\": \"❌ Session `{{ $json.session_id }}` *REJECTED* — agent will re-evaluate.\",\n  \"parse_mode\": \"Markdown\"\n}"
+      },
+      "name": "Notify — Rejected",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 700],
+      "id": "notify-rejected"
+    }
+  ],
+  "connections": {
+    "Webhook: HITL Request": {
+      "main": [[{"node": "Format Approval Request", "type": "main", "index": 0}]]
+    },
+    "Format Approval Request": {
+      "main": [[{"node": "Send Approval Request to Telegram", "type": "main", "index": 0}]]
+    },
+    "Webhook: Operator Approves": {
+      "main": [[{"node": "Resume Agent — Approved", "type": "main", "index": 0}]]
+    },
+    "Resume Agent — Approved": {
+      "main": [[{"node": "Notify — Execution Started", "type": "main", "index": 0}]]
+    },
+    "Webhook: Operator Rejects": {
+      "main": [[{"node": "Resume Agent — Rejected", "type": "main", "index": 0}]]
+    },
+    "Resume Agent — Rejected": {
+      "main": [[{"node": "Notify — Rejected", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Human-in-the-Loop approval gate: when the agent proposes critical actions, sends a Telegram message with approve/reject buttons. Operator response resumes or cancels the remediation session.",
+    "tags": ["soc", "hitl", "approval", "telegram", "security"]
+  }
+}

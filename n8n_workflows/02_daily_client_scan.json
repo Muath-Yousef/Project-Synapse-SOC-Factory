@@ -1,0 +1,104 @@
+{
+  "name": "SOC — Daily Client Scan & Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "cronExpression", "expression": "0 6 * * *"}]
+        }
+      },
+      "name": "Schedule: Daily 6AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "daily-trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// List of clients to scan daily\nconst clients = [\n  { id: 'asasedu',  domain: 'asas.edu.sa',  priority: 'high' },\n  { id: 'techco',   domain: 'techco.com',    priority: 'medium' },\n  { id: 'bankco',   domain: 'bankco.sa',     priority: 'critical' }\n];\nreturn clients.map(c => ({ json: c }));"
+      },
+      "name": "Load Client List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "id": "load-clients"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/webhook/generic",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"event_type\": \"scheduled_scan\",\n  \"client_id\": \"{{ $json.id }}\",\n  \"domain\": \"{{ $json.domain }}\",\n  \"priority\": \"{{ $json.priority }}\",\n  \"scan_types\": [\"nmap\", \"nuclei\", \"ssl\", \"virustotal\"]\n}"
+      },
+      "name": "Trigger Full Scan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "id": "trigger-scan"
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "name": "Wait for Scan",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "id": "wait-scan"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/webhook/generic",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"event_type\": \"generate_report\",\n  \"client_id\": \"{{ $json.id }}\",\n  \"format\": \"pdf\",\n  \"send_email\": true\n}"
+      },
+      "name": "Generate Client Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 300],
+      "id": "generate-report"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TELEGRAM_WEBHOOK_URL }}",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID_FINDINGS }}\",\n  \"text\": \"📊 *Daily Scan Complete*\\nClient: {{ $json.id }}\\nDomain: {{ $json.domain }}\\nReport generated & emailed.\",\n  \"parse_mode\": \"Markdown\"\n}"
+      },
+      "name": "Notify Telegram — Scan Done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 300],
+      "id": "notify-done"
+    }
+  ],
+  "connections": {
+    "Schedule: Daily 6AM": {
+      "main": [[{"node": "Load Client List", "type": "main", "index": 0}]]
+    },
+    "Load Client List": {
+      "main": [[{"node": "Trigger Full Scan", "type": "main", "index": 0}]]
+    },
+    "Trigger Full Scan": {
+      "main": [[{"node": "Wait for Scan", "type": "main", "index": 0}]]
+    },
+    "Wait for Scan": {
+      "main": [[{"node": "Generate Client Report", "type": "main", "index": 0}]]
+    },
+    "Generate Client Report": {
+      "main": [[{"node": "Notify Telegram — Scan Done", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Runs every morning at 6AM — scans all clients (nmap, nuclei, SSL, VT), generates PDF reports, and notifies the SOC Telegram channel.",
+    "tags": ["soc", "scheduled", "scan", "report", "telegram"]
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "name": "SOC — Wazuh Alert → Auto-Remediation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wazuh-alert",
+        "responseMode": "onReceived",
+        "responseData": "{ \"status\": \"accepted\" }"
+      },
+      "name": "Webhook: Wazuh Alert",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "wazuh-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rule = $json.rule || {};\nconst level = rule.level || 0;\nconst severity = level >= 10 ? 'critical' : level >= 7 ? 'high' : level >= 4 ? 'medium' : 'low';\n\nreturn [{\n  json: {\n    alert_id: `WAZUH-${Date.now()}`,\n    severity,\n    description: rule.description || 'Unknown Alert',\n    level,\n    agent: $json.agent || {},\n    src_ip: ($json.data || {}).srcip || null,\n    should_remediate: level >= 7\n  }\n}];"
+      },
+      "name": "Parse & Classify Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "id": "parse-alert"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.should_remediate }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "High Severity?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "id": "check-severity"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/webhook/wazuh",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "name": "Trigger SOC Remediation Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 200],
+      "id": "trigger-agent"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TELEGRAM_WEBHOOK_URL }}",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID_FINDINGS }}\",\n  \"text\": \"🚨 *SOC Alert*\\nSeverity: {{ $json.severity }}\\nDesc: {{ $json.description }}\\nSrc IP: {{ $json.src_ip || 'N/A' }}\",\n  \"parse_mode\": \"Markdown\"\n}"
+      },
+      "name": "Notify Telegram — SOC Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 400],
+      "id": "notify-telegram"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/webhook/wazuh",
+        "method": "POST",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"event_type\": \"low_severity_alert\",\n  \"alert\": {{ JSON.stringify($json) }}\n}"
+      },
+      "name": "Log Low-Severity Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 500],
+      "id": "log-low"
+    }
+  ],
+  "connections": {
+    "Webhook: Wazuh Alert": {
+      "main": [[{"node": "Parse & Classify Alert", "type": "main", "index": 0}]]
+    },
+    "Parse & Classify Alert": {
+      "main": [[{"node": "High Severity?", "type": "main", "index": 0}]]
+    },
+    "High Severity?": {
+      "main": [
+        [
+          {"node": "Trigger SOC Remediation Agent", "type": "main", "index": 0},
+          {"node": "Notify Telegram — SOC Channel", "type": "main", "index": 0}
+        ],
+        [{"node": "Log Low-Severity Alert", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Receives Wazuh SIEM alerts, classifies by severity, triggers the SOC Remediation Agent for high/critical, and notifies the Telegram SOC channel.",
+    "tags": ["soc", "wazuh", "remediation", "telegram"]
+  }
+}
