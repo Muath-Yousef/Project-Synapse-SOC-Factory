@@ -15,3 +15,27 @@ google-generativeai==0.8.6
 # Utilities
 rich==14.3.3
 tqdm==4.67.3
+
+# Evidence System (Phase 1)
+jsonlines>=4.0.0
+
+# Arabic Reports (Phase 3)
+fpdf2>=2.8.0
+arabic-reshaper>=3.0.0
+python-bidi>=0.6.0
+
+# SOAR & Portal (Phase 4-7)
+python-jose[cryptography]>=3.4.0
+fastapi>=0.115.0
+uvicorn>=0.34.0
+jinja2>=3.1.0
+python-multipart>=0.0.18
+
+# DNS & Network (Phase 6)
+dnspython>=2.7.0
+
+# Monitoring (Phase 5)
+prometheus-client>=0.21.0
+
+# HTTP Client
+httpx>=0.28.0
