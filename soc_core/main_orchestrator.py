@@ -17,9 +17,8 @@ from tools.virustotal_tool import VirusTotalTool
 from tools.subfinder_tool import SubfinderTool
 from parsers.aggregator import Aggregator
 from knowledge.vector_store import VectorStore, ClientProfileNotFoundError
-from core.llm_manager import LLMManager
-from reports.report_generator import ReportGenerator
-from reports.client_report_generator import ClientReportGenerator
+from core.provider_router import ProviderRouter, TaskType   # replaces LLMManager + LLMRouter
+from reports.client_report_generator import ClientReportGenerator  # single report class
 from soc.connectors.email_connector import EmailConnector
 import yaml
 
@@ -50,9 +49,8 @@ class Orchestrator:
         self.subfinder_tool = SubfinderTool()
         self.blacklist_tool = BlacklistTool() # Phase 20
         self.aggregator = Aggregator()
-        self.llm = LLMManager()
-        self.report_gen = ReportGenerator()
-        self.client_report_gen = ClientReportGenerator()
+        self.llm = ProviderRouter()        # unified LLM router (replaces LLMManager)
+        self.report_gen = ClientReportGenerator()  # single report class for all output types
         self.email = EmailConnector()
         self.delta_analyzer = DeltaAnalyzer()
         self.compliance_engine = ComplianceEngine()
@@ -144,7 +142,7 @@ class Orchestrator:
         generated = []
 
         if report_type in ("internal", "both"):
-            logger.info("\n[STEP E.1] Generating Internal SOC Report...")
+            logger.info("\n[STEP E.1] Generating Internal SOC Report (Markdown)...")
             md_content = self.report_gen.generate_markdown_report(
                 target_ip=target_ip,
                 client_id=client_id,
@@ -157,23 +155,7 @@ class Orchestrator:
             internal_md = f"{client_slug}_internal_{date_str}.md"
             report_path = self.report_gen.save_report(md_content, internal_md)
             generated.append(("internal", report_path))
-            logger.info(f"[STEP E.1] Internal report: {report_path}")
-            # Also generate internal PDF
-            try:
-                internal_pdf_name = f"{client_slug}_internal_{date_str}.pdf"
-                self.report_gen.generate_pdf_report(
-                    target_ip=target_ip,
-                    client_id=client_id,
-                    client_full_name=client_profile.get("client_name", client_id),
-                    score_data=compliance_results,
-                    scan_data=final_json,
-                    filename=internal_pdf_name,
-                    classification="INTERNAL",
-                    ai_triage=triage_report
-                )
-                logger.info(f"[STEP E.1] Internal PDF: {internal_pdf_name}")
-            except Exception as e:
-                logger.error(f"[STEP E.1] Internal PDF generation failed: {e}")
+            logger.info(f"[STEP E.1] Internal Markdown report: {report_path}")
 
         if report_type in ("executive", "both"):
             logger.info("\n[STEP E.2] Generating Executive Client Report...")

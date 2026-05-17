@@ -217,10 +217,138 @@ class ClientReportPDF(FPDF):
 # Report Builder
 # ============================================================================
 class ClientReportGenerator:
-    """Generates business-oriented executive PDF reports."""
+    """
+    Unified report generator for all SOCRoot output types.
 
-    def __init__(self):
-        pass
+    Replaces both the old ReportGenerator (internal Markdown/PDF) and the original
+    ClientReportGenerator (executive PDF). Single class, all report types.
+
+    Methods:
+        generate()                → Executive client PDF (from scan JSON file)
+        generate_markdown_report() → Internal SOC Markdown report (from live scan dict)
+        save_report()             → Save any string content to a file
+    """
+
+    def __init__(self, output_dir: str = "reports/output"):
+        import os
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        self.output_dir = os.path.join(base_dir, output_dir)
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Internal SOC Report (Markdown) — absorbed from old ReportGenerator
+    # ──────────────────────────────────────────────────────────────────────────
+    def generate_markdown_report(
+        self,
+        target_ip: str,
+        client_id: str,
+        client_context: str,
+        scan_data: dict,
+        triage_verdict: str,
+        delta_findings: dict = None,
+        compliance_results: dict = None,
+    ) -> str:
+        """Generate a structured Markdown SOC report from live scan data."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[ClientReportGenerator] Assembling internal report for [{client_id}] → {target_ip}...")
+
+        # Security Posture Score card
+        score_md = ""
+        if compliance_results:
+            score = compliance_results.get("score", 0)
+            grade = compliance_results.get("grade", "F")
+            bar = "█" * (score // 10) + "░" * (10 - (score // 10))
+            score_md = f"""
+## 1.1 Security Posture Score
+| Metric | Value |
+|--------|-------|
+| **Score** | `{score}/100` |
+| **Grade** | `{grade}` |
+| **Visual** | `[{bar}]` |
+"""
+        # Ports
+        targets = scan_data.get("targets", [])
+        host_info = targets[0] if targets else {}
+        open_ports = host_info.get("open_ports", [])
+        port_lines = []
+        for p in open_ports:
+            if isinstance(p, dict):
+                port_num = p.get('port', 'Unknown')
+                protocol = str(p.get('protocol', 'tcp')).upper()
+                svc = p.get('service', 'Unknown')
+                ver = p.get('version', '')
+                line = f"- **Port {port_num}/{protocol}** — Service: `{svc}`" + (f" ({ver})" if ver and ver != 'Unknown' else "")
+            else:
+                line = f"- {str(p)}"
+            port_lines.append(line)
+        ports_md = "\n".join(port_lines) if port_lines else "- No open ports discovered."
+
+        # Vulnerabilities
+        vulns = host_info.get("vulnerabilities", [])
+        vulns_md = "\n".join(
+            f"- **[{v.get('severity', 'INFO')}]** {v.get('name', 'Unknown')}: {v.get('description', '')}"
+            for v in vulns
+        ) if vulns else "- No explicit vulnerabilities identified."
+
+        # Delta
+        delta_md = ""
+        if delta_findings and any(delta_findings.values()):
+            lines = []
+            for p in delta_findings.get("new_ports", []):
+                lines.append(f"- Port `{p.get('port')}` ({p.get('service')}) on {p.get('target')}")
+            for v in delta_findings.get("new_vulnerabilities", []):
+                lines.append(f"- **[{v.get('severity')}]** {v.get('name')} ({v.get('vuln_id')})")
+            for s in delta_findings.get("new_subdomains", []):
+                lines.append(f"- {s}")
+            delta_md = "\n---\n\n## 2.2 Infrastructure Drift\n" + "\n".join(lines)
+        else:
+            delta_md = "\n---\n\n## 2.2 Infrastructure Drift\n- No changes detected since the previous scan."
+
+        context_formatted = (
+            f"```yaml\n{str(client_context).strip()}\n```"
+            if client_context != "No Context Found" else "_No context._"
+        )
+
+        return f"""# 🛡️ Synapse SOC Report — [{client_id}]
+
+## 1. Executive Summary
+- **Target:** `{target_ip}`
+- **Status:** Finalized
+
+{score_md}
+
+**AI Triage Verdict:**
+> {triage_verdict.strip()}
+
+---
+
+## 2. Technical Details
+### Open Ports
+{ports_md}
+
+### Vulnerabilities
+{vulns_md}
+
+{delta_md}
+
+---
+
+## 4. Context (Memory Layer)
+{context_formatted}
+"""
+
+    def save_report(self, content: str, filename: str) -> str:
+        """Save a string report to the output directory. Returns the full path."""
+        import os
+        import logging
+        logger = logging.getLogger(__name__)
+        filepath = os.path.join(self.output_dir, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        logger.info(f"[ClientReportGenerator] Report saved: {filepath}")
+        return filepath
+
 
     def generate(
         self,
