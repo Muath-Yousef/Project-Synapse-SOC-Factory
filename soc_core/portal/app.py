@@ -10,6 +10,9 @@ from jose import JWTError, jwt
 # FastAPI app
 app = FastAPI(title="SOC Root Client Portal", version="1.0.0")
 
+from api.billing_router import billing_router
+app.include_router(billing_router)
+
 # Environment configuration
 SECRET_KEY = os.getenv("PORTAL_SECRET_KEY", "change-me-in-production")
 ALGORITHM = "HS256"
@@ -61,6 +64,18 @@ async def login(form: OAuth2PasswordRequestForm = Depends()):
     token = create_access_token(form.username)
     return {"access_token": token, "token_type": "bearer"}
 
+async def require_active_subscription(client_id: str = Depends(get_current_client)) -> str:
+    """Dependency to ensure the client has an active subscription."""
+    profile_path = Path(f"knowledge/client_profiles/{client_id}.yaml")
+    if not profile_path.is_file():
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    with open(profile_path) as f:
+        profile = yaml.safe_load(f)
+        
+    if profile.get("subscription_status") != "active":
+        raise HTTPException(status_code=402, detail="Payment Required: Active subscription needed for this feature.")
+    return client_id
+
 @app.get("/dashboard")
 async def get_dashboard(client_id: str = Depends(get_current_client)):
     """Return client specific dashboard data."""
@@ -108,8 +123,8 @@ async def get_findings(client_id: str = Depends(get_current_client), severity: s
     return {"client_id": client_id, "total": len(records), "findings": records[:limit]}
 
 @app.post("/scan/request")
-async def request_scan(client_id: str = Depends(get_current_client)):
-    """Trigger an asynchronous scan for the client domain."""
+async def request_scan(client_id: str = Depends(require_active_subscription)):
+    """Trigger an asynchronous scan for the client domain. Requires active subscription."""
     import subprocess
     profile_path = Path(f"knowledge/client_profiles/{client_id}.yaml")
     if not profile_path.is_file():
