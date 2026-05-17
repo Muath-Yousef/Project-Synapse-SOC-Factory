@@ -16,6 +16,9 @@ app.include_router(billing_router)
 from api.legal_router import legal_router
 app.include_router(legal_router)
 
+from api.agent_router import agent_router
+app.include_router(agent_router)
+
 # Environment configuration
 SECRET_KEY = os.getenv("PORTAL_SECRET_KEY", "change-me-in-production")
 ALGORITHM = "HS256"
