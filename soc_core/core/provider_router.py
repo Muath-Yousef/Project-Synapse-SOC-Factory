@@ -160,12 +160,13 @@ class ProviderRouter:
                     if "429" in err_str or "quota" in err_str or "rate" in err_str:
                         self._pool.report_rate_limit(provider, api_key)
                         logger.warning(f"[ProviderRouter] Rate limit on {model} — key rotated")
+                        continue  # Try same model again with new key
                     else:
                         self._pool.report_error(provider, api_key)
                         wait = 2 ** attempt
                         logger.warning(f"[ProviderRouter] {model} attempt {attempt+1} error: {e}. Retry in {wait}s")
                         time.sleep(wait)
-                    break  # Try next model after key rotation
+                        continue  # Try same model again after waiting
 
         logger.error("[ProviderRouter] All models and keys exhausted")
         return self._offline_response(prompt, task)
