@@ -13,6 +13,9 @@ app = FastAPI(title="SOC Root Client Portal", version="1.0.0")
 from api.billing_router import billing_router
 app.include_router(billing_router)
 
+from api.legal_router import legal_router
+app.include_router(legal_router)
+
 # Environment configuration
 SECRET_KEY = os.getenv("PORTAL_SECRET_KEY", "change-me-in-production")
 ALGORITHM = "HS256"
@@ -76,6 +79,23 @@ async def require_active_subscription(client_id: str = Depends(get_current_clien
         raise HTTPException(status_code=402, detail="Payment Required: Active subscription needed for this feature.")
     return client_id
 
+async def require_legal_authorization(client_id: str = Depends(require_active_subscription)) -> str:
+    """Dependency to ensure the client has signed the RoE/NDA for their domain."""
+    from core.legal_manager import LegalManager
+    profile_path = Path(f"knowledge/client_profiles/{client_id}.yaml")
+    with open(profile_path) as f:
+        profile = yaml.safe_load(f)
+        
+    domain = profile.get("domain")
+    if not domain:
+        raise HTTPException(status_code=400, detail="Domain not configured for client")
+        
+    mgr = LegalManager()
+    if not mgr.verify_authorization(client_id, domain):
+        raise HTTPException(status_code=403, detail="Forbidden: Legal Authorization (RoE/NDA) required before testing.")
+        
+    return client_id
+
 @app.get("/dashboard")
 async def get_dashboard(client_id: str = Depends(get_current_client)):
     """Return client specific dashboard data."""
@@ -123,8 +143,8 @@ async def get_findings(client_id: str = Depends(get_current_client), severity: s
     return {"client_id": client_id, "total": len(records), "findings": records[:limit]}
 
 @app.post("/scan/request")
-async def request_scan(client_id: str = Depends(require_active_subscription)):
-    """Trigger an asynchronous scan for the client domain. Requires active subscription."""
+async def request_scan(client_id: str = Depends(require_legal_authorization)):
+    """Trigger an asynchronous scan for the client domain. Requires active subscription and signed RoE."""
     import subprocess
     from core.snapshot_manager import SnapshotManager
     
