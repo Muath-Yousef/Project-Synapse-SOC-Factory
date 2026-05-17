@@ -1,11 +1,13 @@
+import os
 import sys, unittest, os, json, shutil
-sys.path.insert(0, '/media/kyrie/VMs1/Cybersecurity_Tools_Automation')
-os.chdir('/media/kyrie/VMs1/Cybersecurity_Tools_Automation')
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT_DIR)
+os.chdir(ROOT_DIR)
 
 class TestPhase19Priority2(unittest.TestCase):
 
     def setUp(self):
-        self.history_dir = "/media/kyrie/VMs1/Cybersecurity_Tools_Automation/knowledge/history"
+        self.history_dir = os.path.join(ROOT_DIR, "knowledge/history")
         os.makedirs(self.history_dir, exist_ok=True)
         self.client_id = "test_delta"
         # Cleanup old test files

@@ -1,7 +1,7 @@
-import sys, unittest
-sys.path.insert(0, '/media/kyrie/VMs1/Cybersecurity_Tools_Automation')
-import os
-os.chdir('/media/kyrie/VMs1/Cybersecurity_Tools_Automation')
+import sys, os, unittest
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT_DIR)
+os.chdir(ROOT_DIR)
 
 class TestPhase15(unittest.TestCase):
 
@@ -58,7 +58,7 @@ class TestPhase15(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, "scheduler.py", "--help"],
             capture_output=True, text=True, timeout=10,
-            cwd="/media/kyrie/VMs1/Cybersecurity_Tools_Automation",
+            cwd=ROOT_DIR,
             env={**os.environ, "SOAR_DRY_RUN": "true"}
         )
         output = result.stdout + result.stderr

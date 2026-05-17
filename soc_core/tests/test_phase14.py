@@ -1,5 +1,7 @@
+import os
 import sys, unittest
-sys.path.insert(0, '/media/kyrie/VMs1/Cybersecurity_Tools_Automation')
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT_DIR)
 
 class TestPhase14(unittest.TestCase):
 

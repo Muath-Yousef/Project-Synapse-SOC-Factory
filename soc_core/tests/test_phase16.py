@@ -1,6 +1,8 @@
+import os
 import sys, unittest, os
-sys.path.insert(0, '/media/kyrie/VMs1/Cybersecurity_Tools_Automation')
-os.chdir('/media/kyrie/VMs1/Cybersecurity_Tools_Automation')
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT_DIR)
+os.chdir(ROOT_DIR)
 
 class TestPhase16(unittest.TestCase):
 
@@ -38,7 +40,7 @@ class TestPhase16(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, "dashboard.py"],
             capture_output=True, text=True, timeout=15,
-            cwd="/media/kyrie/VMs1/Cybersecurity_Tools_Automation"
+            cwd=ROOT_DIR
         )
         self.assertEqual(result.returncode, 0)
         self.assertIn("SYNAPSE SOC FACTORY", result.stdout)
