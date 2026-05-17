@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from soc.evidence_store import EvidenceRecord, EvidenceStore, hash_raw_log
+from soc.safety_guard import SafetyGuard  # Canonical source — do NOT redefine here
 
 SOAR_DRY_RUN = os.getenv("SOAR_DRY_RUN", "true").lower() == "true"
 
@@ -49,70 +50,6 @@ SOAR_ACTION_CONTROL_MAP: dict[str, dict] = {
     },
 }
 
-
-class SafetyGuard:
-    """
-    ABSOLUTE safety constraints on SOAR actions.
-    These rules cannot be overridden by any configuration.
-    """
-
-    # RFC1918 ranges — NEVER block
-    RFC1918_PREFIXES = (
-        "10.", "172.16.", "172.17.", "172.18.", "172.19.",
-        "172.20.", "172.21.", "172.22.", "172.23.", "172.24.",
-        "172.25.", "172.26.", "172.27.", "172.28.", "172.29.",
-        "172.30.", "172.31.", "192.168.",
-    )
-
-    # Cloudflare CDN IP ranges — NEVER block
-    CLOUDFLARE_PREFIXES = (
-        "103.21.244.", "103.22.200.", "103.31.4.", "104.16.",
-        "104.17.", "104.18.", "104.19.", "108.162.", "141.101.",
-        "162.158.", "172.64.", "172.65.", "172.66.", "172.67.",
-        "173.245.", "188.114.", "190.93.", "197.234.", "198.41.",
-    )
-
-    @classmethod
-    def is_safe_to_block(cls, ip: str, client_whitelist: set[str]) -> tuple[bool, str]:
-        """
-        Returns (safe, reason). Safe=False means DO NOT BLOCK.
-        """
-        # RFC1918 check
-        for prefix in cls.RFC1918_PREFIXES:
-            if ip.startswith(prefix):
-                return False, f"RFC1918 address — internal IP, never block: {ip}"
-
-        # Cloudflare CDN check
-        for prefix in cls.CLOUDFLARE_PREFIXES:
-            if ip.startswith(prefix):
-                return False, f"Cloudflare CDN IP — never block: {ip}"
-
-        # Client whitelist check
-        if ip in client_whitelist:
-            return False, f"Client whitelisted IP — never block: {ip}"
-
-        return True, "Safe to block"
-
-    @classmethod
-    def validate_soar_action(
-        cls, action: str, params: dict, client_whitelist: set[str]
-    ) -> tuple[bool, str]:
-        """Validate any SOAR action before execution."""
-
-        # DNS findings — notify only, never block
-        if params.get("source") == "dns_finding":
-            return False, "DNS findings are NOTIFY_ONLY — never execute block"
-
-        # Malware — escalate to human, never auto-block
-        if params.get("alert_type") in {"malware", "ransomware"}:
-            return False, "Malware/ransomware findings require human escalation"
-
-        # IP block safety check
-        if action == "cloudflare_block_ip":
-            ip = params.get("ip", "")
-            return cls.is_safe_to_block(ip, client_whitelist)
-
-        return True, "Action validated"
 
 
 def execute_soar_action_with_evidence(
