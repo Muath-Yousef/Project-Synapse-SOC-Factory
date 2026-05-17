@@ -126,6 +126,16 @@ async def get_findings(client_id: str = Depends(get_current_client), severity: s
 async def request_scan(client_id: str = Depends(require_active_subscription)):
     """Trigger an asynchronous scan for the client domain. Requires active subscription."""
     import subprocess
+    from core.snapshot_manager import SnapshotManager
+    
+    # Take a safety snapshot BEFORE the scan
+    snapshot_mgr = SnapshotManager()
+    snapshot_result = snapshot_mgr.create_snapshot(client_id, trigger="auto_scan_prep")
+    
+    if snapshot_result.get("status") == "error":
+        # Log it, but maybe we shouldn't block the scan if they have no evidence yet
+        pass
+
     profile_path = Path(f"knowledge/client_profiles/{client_id}.yaml")
     if not profile_path.is_file():
         raise HTTPException(status_code=404, detail="Client profile not found")
@@ -144,4 +154,26 @@ async def request_scan(client_id: str = Depends(require_active_subscription)):
         domain,
         "--async",
     ])
-    return {"message": f"Scan queued for {domain}", "estimated_completion": "30 minutes", "client_id": client_id}
+    return {
+        "message": f"Scan queued for {domain}", 
+        "estimated_completion": "30 minutes", 
+        "client_id": client_id,
+        "pre_scan_snapshot": snapshot_result.get("snapshot_id")
+    }
+
+@app.post("/snapshots/create")
+async def create_snapshot(client_id: str = Depends(get_current_client)):
+    """Manually trigger a snapshot of the client's current evidence and profile."""
+    from core.snapshot_manager import SnapshotManager
+    snapshot_mgr = SnapshotManager()
+    result = snapshot_mgr.create_snapshot(client_id, trigger="manual")
+    if result.get("status") == "error":
+        raise HTTPException(status_code=404, detail=result.get("message"))
+    return result
+
+@app.get("/snapshots")
+async def list_snapshots(client_id: str = Depends(get_current_client)):
+    """List all snapshots for the client."""
+    from core.snapshot_manager import SnapshotManager
+    snapshot_mgr = SnapshotManager()
+    return {"client_id": client_id, "snapshots": snapshot_mgr.list_snapshots(client_id)}
