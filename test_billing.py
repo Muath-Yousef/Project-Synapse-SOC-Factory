@@ -9,6 +9,7 @@ sys.path.insert(0, '/home/kyrie/Projects/Project-Synapse-SOC-Factory/soc_core')
 
 # Mock environment before importing app
 import os
+os.chdir('/home/kyrie/Projects/Project-Synapse-SOC-Factory/soc_core')
 os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test"
 os.environ["PORTAL_SECRET_KEY"] = "test-secret"
 
@@ -64,13 +65,10 @@ with open(profile_path, "r") as f:
     print(f"Updated Profile: {profile}")
     assert profile.get("subscription_status") == "active"
 
-# 4. Test gating: /scan/request should now succeed (or fail differently if domain scan fails, but not 402)
-# Since the orchestrator is run via subprocess, it might actually launch. Let's mock subprocess.Popen
-import subprocess
-class MockPopen:
-    def __init__(self, *args, **kwargs):
-        pass
-subprocess.Popen = MockPopen
+# Sign the RoE/NDA agreement to satisfy Legal Gateway
+from core.legal_manager import LegalManager
+lm = LegalManager()
+lm.sign_contract("test_billing_client", "test.com", "127.0.0.1", "TestClient")
 
 print("Testing Gated Endpoint with Active Subscription...")
 res = client.post("/scan/request", headers=headers)

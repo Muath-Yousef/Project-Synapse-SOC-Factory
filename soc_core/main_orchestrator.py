@@ -238,11 +238,6 @@ def add_evidence_arguments(parser):
         help="Export audit package for auditor review"
     )
     evidence_group.add_argument(
-        "--client",
-        type=str,
-        help="Client ID for evidence operations (e.g., asasEdu)"
-    )
-    evidence_group.add_argument(
         "--scan-id",
         type=str,
         help="Scan ID to filter evidence export (optional)"
@@ -302,6 +297,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Synapse Orchestrator - Automated MSSP Triage")
     parser.add_argument("--target", required=False, help="Target IP or Hostname to scan")
+    parser.add_argument("--domain", required=False, help="Alias for --target")
+    parser.add_argument("--async", dest="async_mode", action="store_true", help="Run asynchronously")
     parser.add_argument("--client", required=True, help="Client ID for context retrieval")
     parser.add_argument("--report-type", choices=["internal", "executive", "both"], default="both",
                         help="Report type: internal (SOC), executive (client), or both (default)")
@@ -313,8 +310,9 @@ if __name__ == "__main__":
     if args.verify_evidence or args.export_evidence:
         sys.exit(handle_evidence_command(args))
         
-    if not args.target:
-        parser.error("--target is required for normal orchestration runs")
+    target = args.target or args.domain
+    if not target:
+        parser.error("--target or --domain is required for normal orchestration runs")
 
     
     # Configure root logging for CLI
@@ -323,7 +321,7 @@ if __name__ == "__main__":
     orchestrator = Orchestrator()
     try:
         report_path = orchestrator.run_triage(
-            args.target, args.client,
+            target, args.client,
             test_mode=args.test_mode,
             report_type=args.report_type
         )
